@@ -4,6 +4,8 @@
 # X-Env-Layer-Version: 1.0.0
 # X-Env-Layer-Category: networking
 # X-Env-Layer-Requires: systemd-net-min
+# X-Env-VarRequires: IGconf_network_interface
+# X-Env-VarRequires: IGconf_network_use_dhcp
 # X-Env-VarRequires: IGconf_network_ipaddress
 # X-Env-VarRequires: IGconf_network_ipnetmask
 # X-Env-VarRequires: IGconf_network_netmask
@@ -20,31 +22,41 @@ mmdebstrap:
     - |
       #!/bin/bash
       # Set up network configuration based on environment variables
-      IP_ADDRESS=${IGconf_network_ipaddress:-192.168.0.53}
+      INTERFACE=${IGconf_network_interface:-eth0}
+      USE_DHCP=${IGconf_network_use_dhcp:-n}
+      IP_ADDRESS=${IGconf_network_ipaddress:?IGconf_network_ipaddress is required}
       NETMASK=${IGconf_network_ipnetmask:-24}
       GATEWAY=${IGconf_network_gateway:-192.168.0.1}
       DNS0=${IGconf_network_dns0:-127.0.0.1}
-      DNS1=${IGconf_network_dns1:-1.1.1.1}
-      DNS2=${IGconf_network_dns2:-9.9.9.9}
+      DNS1=${IGconf_network_dns1:?IGconf_network_dns1 is required}
+      DNS2=${IGconf_network_dns2:?IGconf_network_dns2 is required}
       DOMAIN=${IGconf_network_domain:-lan}
-      
-      # Strip last octet from IP address for network matching
-      NET_MATCH=${IP_ADDRESS%.*}
+
+      if [ "$USE_DHCP" = "y" ]; then
+        DHCP_MODE=yes
+      else
+        DHCP_MODE=no
+      fi
+
+      NETWORK_BASE=$(python3 -c 'import ipaddress,sys; print(ipaddress.ip_network(f"{sys.argv[1]}/{sys.argv[2]}", strict=False).network_address)' "$IP_ADDRESS" "$NETMASK")
 
       # Create systemd network configuration
       install -d "$1/etc/systemd/network"
-      cat > "$1/etc/systemd/network/01-eth0.network" <<-EOF
-      # systemd-networkd configuration for eth0
+      cat > "$1/etc/systemd/network/01-$INTERFACE.network" <<-EOF
+      # systemd-networkd configuration for $INTERFACE
       # Static IP configuration for Pi-hole DNS server
       # Reference: man systemd.network
 
       [Match]
-      # Match the primary Ethernet interface
-      Name=eth0
+      Name=$INTERFACE
 
       [Network]
-      # Static IP configuration (no DHCP)
-      DHCP=no
+      DHCP=$DHCP_MODE
+
+      EOF
+
+      if [ "$DHCP_MODE" = "no" ]; then
+        cat >> "$1/etc/systemd/network/01-$INTERFACE.network" <<-EOF
 
       # Static IP address with CIDR notation
       Address=$IP_ADDRESS/$NETMASK
@@ -55,9 +67,13 @@ mmdebstrap:
       # DNS servers
       # Primary: Localhost (Pi-hole on port 53)
       DNS=$DNS0
-      # Fallback: WOW DNS servers (replace with your ISP or preferred DNS)
+      # Fallback: additional DNS servers from config
       DNS=$DNS1
       DNS=$DNS2
+      EOF
+      fi
+
+      cat >> "$1/etc/systemd/network/01-$INTERFACE.network" <<-EOF
 
       # Disable IPv6 Router Advertisements
       # (IPv6 not currently required for this setup)
@@ -91,6 +107,6 @@ mmdebstrap:
       default		0.0.0.0
       loopback	127.0.0.0
       link-local	169.254.0.0
-      $DOMAIN         192.168.0.0
+      $DOMAIN         $NETWORK_BASE
       EOS
 
