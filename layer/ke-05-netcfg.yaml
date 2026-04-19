@@ -1,0 +1,109 @@
+# METABEGIN
+# X-Env-Layer-Name: ke-netcfg
+# X-Env-Layer-Desc: Network Configuration
+# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Category: networking
+# X-Env-Layer-Requires: systemd-net-min
+# X-Env-VarRequires: IGconf_network_ipaddress
+# X-Env-VarRequires-Default: 192.168.0.72
+# X-Env-VarRequires: IGconf_network_ipnetmask
+# X-Env-VarRequires-Default: 24
+# X-Env-VarRequires-Description: Default IP address for the network configuration
+# X-Env-VarRequires: IGconf_network_netmask
+# X-Env-VarRequires-Default: 255.255.255.0
+# X-Env-VarRequires-Description: Default netmask for the network configuration
+# X-Env-VarRequires: IGconf_network_gateway
+# X-Env-VarRequires-Default: 192.168.0.1
+# X-Env-VarRequires-Description: Default gateway for the network configuration
+# X-Env-VarRequires: IGconf_network_dns0
+# X-Env-VarRequires-Default: 127.0.0.1
+# X-Env-VarRequires: IGconf_network_dns1
+# X-Env-VarRequires-Default: 75.76.160.3
+# X-Env-VarRequires: IGconf_network_dns2
+# X-Env-VarRequires-Default: 75.76.160.4
+# X-Env-VarRequires-Description: Default DNS server for the network configuration
+# X-Env-VarRequires: IGconf_network_domain
+# X-Env-VarRequires-Default: lan
+# X-Env-VarRequires-Description: Default domain name for the network configuration
+# METAEND
+mmdebstrap:
+  suite: trixie
+  variant: minbase
+  customize-hooks:
+    - |
+      #!/bin/bash
+      # Set up network configuration based on environment variables
+      IP_ADDRESS=${IGconf_network_ipaddress:-192.168.0.72}
+      NETMASK=${IGconf_network_ipnetmask:-24}
+      GATEWAY=${IGconf_network_gateway:-192.168.0.1}
+      DNS0=${IGconf_network_dns0:-127.0.0.1}
+      DNS1=${IGconf_network_dns1:-1.1.1.1}
+      DNS2=${IGconf_network_dns2:-9.9.9.9}
+      DOMAIN=${IGconf_network_domain:-lan}
+      
+      # Strip last octet from IP address for network matching
+      NET_MATCH=${IP_ADDRESS%.*}
+
+      # Create systemd network configuration
+      install -d "$1/etc/systemd/network"
+      cat > "$1/etc/systemd/network/01-eth0.network" <<-EOF
+      # systemd-networkd configuration for eth0
+      # Static IP configuration for Pi-hole DNS server
+      # Reference: man systemd.network
+
+      [Match]
+      # Match the primary Ethernet interface
+      Name=eth0
+
+      [Network]
+      # Static IP configuration (no DHCP)
+      DHCP=no
+
+      # Static IP address with CIDR notation
+      Address=$IP_ADDRESS/$NETMASK
+
+      # Default gateway
+      Gateway=$GATEWAY
+
+      # DNS servers
+      # Primary: Localhost (Pi-hole on port 53)
+      DNS=$DNS0
+      # Fallback: WOW DNS servers (replace with your ISP or preferred DNS)
+      DNS=$DNS1
+      DNS=$DNS2
+
+      # Disable IPv6 Router Advertisements
+      # (IPv6 not currently required for this setup)
+      IPv6AcceptRA=no
+
+      # Disable IPv6 link-local addressing
+      # (IPv6 not currently required for this setup)
+      LinkLocalAddressing=no
+
+      [Link]
+      # Wait for this interface to be online before considering boot complete
+      RequiredForOnline=yes
+
+      [DHCPv4]
+      # DHCP settings (not used with DHCP=no, but documented for reference)
+      # UseDNS=no              # Don't use DNS servers from DHCP
+      # UseNTP=yes             # Use NTP servers from DHCP
+      # UseHostname=no         # Don't use hostname from DHCP
+
+      [Route]
+      # Additional static routes can be added here
+      # Example:
+      # Gateway=192.168.0.1
+      # Destination=10.0.0.0/8
+      # Metric=100
+      EOF
+
+      # Include domain /etc/networks file for proper name resolution
+      install -d "$1/etc"
+      cat > "$1/etc/networks" <<-EOS
+      default		0.0.0.0
+      loopback	127.0.0.0
+      link-local	169.254.0.0
+      $DOMAIN         192.168.0.0
+      EOS
+

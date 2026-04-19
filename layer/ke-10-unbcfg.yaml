@@ -1,0 +1,101 @@
+# METABEGIN
+# X-Env-Layer-Name: ke-unbcfg
+# X-Env-Layer-Desc: Unbound Configuration
+# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Category: networking
+# X-Env-Layer-Requires: ke-knlcfg,ke-netcfg
+# X-Env-VarRequires: IGconf_device_user1,IGconf_network_ipaddress,IGconf_network_domain,IGconf_network_ipnetmask,IGconf_network_gateway,IGconf_network_dns0,IGconf_network_dns1,IGconf_network_dns2
+# METAEND
+mmdebstrap:
+  suite: trixie
+  variant: minbase
+  packages:
+    - unbound
+    - dns-root-data
+#    - dnsutils    
+  setup-hooks:
+  customize-hooks:
+    - |
+      # Create unbound default for environment values
+      install -d -m 0755 "$1/etc/default"
+      echo 'DAEMON_OPTS=""' > "$1/etc/default/unbound" 2>/dev/null || true
+    - |
+      # Prevent systemd-resolved dns stub listener from interfering with unbound on port 53.
+      install -d -m 0755 "$1/etc/systemd/resolved.conf.d/"
+
+      # Set up network configuration based on environment variables
+      IP_ADDRESS=${IGconf_network_ipaddress:-192.168.0.72}
+      NETMASK=${IGconf_network_ipnetmask:-24}
+      GATEWAY=${IGconf_network_gateway:-192.168.0.1}
+      DNS0=${IGconf_network_dns0:-127.0.0.1}
+      DNS1=${IGconf_network_dns1:-1.1.1.1}
+      DNS2=${IGconf_network_dns2:-9.9.9.9}
+      DOMAIN=${IGconf_network_domain:-lan}
+
+      cat > "$1/etc/systemd/resolved.conf.d/unbound.conf" <<-EOR
+      [Resolve]
+      DNS=$DNS0
+      DNSSEC=yes
+      DNSStubListener=no
+      # Delegated to Pi-Hole or other local resolver
+      Cache=no
+      # Disable link-local name resolution
+      LLMNR=no
+      # Avahi daemon handles mDNS
+      MulticastDNS=no
+      # WideOpenWest DNS servers
+      FallbackDNS=$DNS1 $DNS2
+      EOR
+    - |
+      # Change port config of unbound for pihole installation.
+      install -d -m 0755 "$1/etc/unbound/unbound.conf.d/"
+
+      cat > "$1/etc/unbound/unbound.conf.d/pi-hole.conf" <<-EOP
+      server:
+          verbosity: 0
+          chroot: ""
+          module-config: "dns64 validator iterator"
+          interface: 127.0.0.1
+          port: 5335
+          do-ip4: yes
+          do-udp: yes
+          do-tcp: yes
+          do-ip6: yes
+          prefer-ip6: no
+          #root-hints: "/var/lib/unbound/root.hints"
+          harden-glue: yes
+          harden-dnssec-stripped: yes
+          use-caps-for-id: no
+          edns-buffer-size: 1232
+          prefetch: yes
+          num-threads: 1
+          # 4MB cache for better performance on small devices
+          msg-cache-size: 4m
+          rrset-cache-size: 4m
+          cache-min-ttl: 3600
+          cache-max-ttl: 86400
+          # Socket buffer sizes requires kernel tuning to take effect
+          so-rcvbuf: 8m
+          so-sndbuf: 8m
+
+          # BK: Rate limiting settings
+          ratelimit: 5000
+          discard-timeout: 0
+          wait-limit: 2000
+          ip-ratelimit: 0         
+
+          # Ensure privacy of local IP ranges
+          private-address: 192.168.0.0/16
+          private-address: 169.254.0.0/16
+          private-address: 172.16.0.0/12
+          private-address: 10.0.0.0/8
+          private-address: fd00::/8
+          private-address: fe80::/10
+
+          # Ensure no reverse queries to non-public IP ranges (RFC6303 4.2)
+          private-address: 192.0.2.0/24
+          private-address: 198.51.100.0/24
+          private-address: 203.0.113.0/24
+          private-address: 255.255.255.255/32
+          private-address: 2001:db8::/32        
+      EOP

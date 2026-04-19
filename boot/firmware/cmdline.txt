@@ -1,0 +1,1 @@
+console=serial0,115200 root=ROOTDEV fsck.repair=yes rootwait fullscreen_logo=1 fullscreen_logo_name=logo.tga vt.global_cursor_default=0 cfg80211.ieee80211_regdom=US

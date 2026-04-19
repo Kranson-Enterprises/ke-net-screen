@@ -1,0 +1,183 @@
+#!/bin/bash
+
+# Unbound Cache Dump Script
+# Dumps the current Unbound DNS cache to a timestamped file
+
+set -euo pipefail
+
+# Configuration
+UNBOUND_CONF="/etc/unbound/unbound.conf"
+OUTPUT_DIR="$HOME"
+
+# Function to display help
+show_help() {
+    cat << EOF
+Unbound Cache Dump Script
+
+USAGE:
+    $(basename "$0") [OPTIONS]
+
+DESCRIPTION:
+    Dumps the current Unbound DNS cache to a timestamped file in your home directory.
+    The script will try to run unbound-control without sudo first, then with sudo if needed.
+
+OPTIONS:
+    -h, --help      Show this help message and exit
+    -q, --quiet     Suppress informational output
+    -n, --no-view   Don't prompt to view the output file
+
+OUTPUT:
+    Creates a file named: dns-cache-as-of-YYMMDD-HH-MM.txt in $OUTPUT_DIR
+
+EXAMPLES:
+    $(basename "$0")                # Dump cache and prompt to view
+    $(basename "$0") --quiet        # Dump cache without extra output
+    $(basename "$0") --no-view      # Dump cache but don't offer to view
+
+REQUIREMENTS:
+    - unbound-control command must be available
+    - Unbound service must be running
+    - May require sudo privileges depending on system configuration
+
+EOF
+}
+
+# Function to check if command exists
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+# Function to log messages
+log_info() {
+    [[ "${QUIET:-false}" != "true" ]] && echo "ℹ️  $*"
+}
+
+log_error() {
+    echo "❌ Error: $*" >&2
+}
+
+log_success() {
+    [[ "${QUIET:-false}" != "true" ]] && echo "✅ $*"
+}
+
+# Parse command line arguments
+QUIET=false
+NO_VIEW=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -q|--quiet)
+            QUIET=true
+            shift
+            ;;
+        -n|--no-view)
+            NO_VIEW=true
+            shift
+            ;;
+        *)
+            log_error "Unknown option: $1"
+            echo "Use --help for usage information."
+            exit 1
+            ;;
+    esac
+done
+
+# Check if unbound-control is available
+if ! command_exists "unbound-control"; then
+    log_error "unbound-control command not found"
+    echo "Please ensure Unbound is installed and unbound-control is in your PATH."
+    exit 1
+fi
+
+# Check if Unbound config file exists
+if [[ ! -f "$UNBOUND_CONF" ]]; then
+    log_error "Unbound configuration file not found: $UNBOUND_CONF"
+    echo "Please check your Unbound installation."
+    exit 1
+fi
+
+# Generate timestamped filename
+TIMESTAMP=$(date '+%y%m%d-%H-%M')
+OUTPUT_FILE="$OUTPUT_DIR/dns-cache-as-of-$TIMESTAMP.txt"
+
+log_info "Starting Unbound cache dump..."
+log_info "Configuration file: $UNBOUND_CONF"
+log_info "Output file: $OUTPUT_FILE"
+
+# Function to try dumping cache
+dump_cache() {
+    local use_sudo=$1
+    local cmd_prefix=""
+    
+    if [[ "$use_sudo" == "true" ]]; then
+        cmd_prefix="sudo "
+        log_info "Attempting cache dump with sudo..."
+    else
+        log_info "Attempting cache dump without sudo..."
+    fi
+    
+    if ${cmd_prefix}unbound-control -c "$UNBOUND_CONF" dump_cache > "$OUTPUT_FILE" 2>/dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Try to dump cache without sudo first, then with sudo
+DUMP_SUCCESS=false
+
+if dump_cache false; then
+    DUMP_SUCCESS=true
+    log_success "Cache dumped successfully (without sudo)"
+elif command_exists "sudo"; then
+    log_info "Failed without sudo, trying with sudo..."
+    if dump_cache true; then
+        DUMP_SUCCESS=true
+        log_success "Cache dumped successfully (with sudo)"
+    else
+        log_error "Failed to dump cache even with sudo"
+    fi
+else
+    log_error "Failed to dump cache and sudo is not available"
+fi
+
+# Check if dump was successful
+if [[ "$DUMP_SUCCESS" != "true" ]]; then
+    log_error "Could not dump Unbound cache"
+    echo "Possible causes:"
+    echo "  - Unbound service is not running"
+    echo "  - Insufficient permissions"
+    echo "  - Unbound control socket is not accessible"
+    echo ""
+    echo "Try checking Unbound status with: systemctl status unbound"
+    exit 1
+fi
+
+# Show file information
+if [[ -f "$OUTPUT_FILE" ]]; then
+    FILE_SIZE=$(stat -c%s "$OUTPUT_FILE" 2>/dev/null || echo "unknown")
+    CACHE_ENTRIES=$(grep -c "^[^;]" "$OUTPUT_FILE" 2>/dev/null || echo "unknown")
+    
+    log_success "Cache dump completed!"
+    log_info "Output file: $OUTPUT_FILE"
+    log_info "File size: ${FILE_SIZE} bytes"
+    log_info "Cache entries: ${CACHE_ENTRIES}"
+    
+    # Offer to view the file
+    if [[ "$NO_VIEW" != "true" ]]; then
+        echo ""
+        read -p "Would you like to view the cache file? [y/N]: " -n 1 -r
+        echo ""
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            log_info "Opening cache file with more..."
+            more "$OUTPUT_FILE"
+        fi
+    fi
+else
+    log_error "Output file was not created successfully"
+    exit 1
+fi

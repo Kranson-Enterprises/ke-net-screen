@@ -1,0 +1,48 @@
+#!/bin/bash
+echo "Clear local resolver cache and statistics"
+sudo resolvectl flush-caches && sudo resolvectl reset-server-features && sudo resolvectl reset-statistics
+
+#  output current pihole db size
+echo "Size of pihole DNS database"
+sudo du /etc/pihole/pihole-FTL.db -h
+
+# flush pihole logs
+echo "Flushing pihole DNS"
+sudo pihole flush
+
+# stop pihole FTL service
+echo "Stopping pihole, this can take awhile..."
+sudo systemctl stop pihole-FTL
+
+# delete the FTL database file
+echo "Deleting pihole FTL database file"
+sudo rm /etc/pihole/pihole-FTL.db
+
+# start pihole FTL service
+echo "Starting FTL service"
+sudo systemctl start pihole-FTL
+
+echo "Sleeping for 5"
+sleep 5
+
+# output reduced pihole db size
+echo "FTL database after restart"
+sudo du /etc/pihole/pihole-FTL.db -h
+
+echo "Flush unbound cache and reload unbound service"
+sudo /usr/sbin/unbound-control -c /etc/unbound/unbound.conf flush_zone . && \
+sudo /usr/sbin/unbound-control -c /etc/unbound/unbound.conf reload && \
+
+echo "Sleeping for 5"
+sleep 5 
+
+echo "Clear pihole cache via restartdns"
+sudo pihole reloaddns
+
+echo "Sleeping for 10"
+sleep 10 
+
+echo "Restart unbound"
+systemctl status unbound
+
+sudo systemctl restart unbound

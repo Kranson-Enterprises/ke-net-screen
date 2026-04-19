@@ -1,0 +1,4 @@
+#!/bin/bash
+
+cat /etc/unbound/unbound.conf.d/pi-hole.conf
+journalctl -xeu unbound.service

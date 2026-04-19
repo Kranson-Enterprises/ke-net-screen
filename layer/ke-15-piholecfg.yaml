@@ -1,0 +1,79 @@
+# METABEGIN
+# X-Env-Layer-Name: ke-piholecfg
+# X-Env-Layer-Desc: Kranson Enterprise Pihole Layer Configuration
+# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Category: general
+# X-Env-Layer-Requires: ke-unbcfg
+# METAEND
+mmdebstrap:
+  suite: trixie
+  variant: minbase
+  setup-hooks:
+    - |
+      # Set up a first-boot script to run the Pi-hole installer on first boot
+      install -d -m 0755 "$1/usr/local/sbin" "$1/usr/local/src/pihole-installer"
+
+      # Add local copy of pi-hole installer script
+      cp -a "../vendors/pi-hole/automated install/basic-install.sh" "$1/usr/local/src/pihole-installer/" 2>/dev/null || true
+      chmod +x "$1/usr/local/src/pihole-installer/basic-install.sh"
+
+      # Create first-boot script to run pi-hole installer
+      cat > "$1/usr/local/sbin/run-pihole-firstboot.sh" <<'EOS'
+      #!/bin/sh
+      set -e
+      /usr/local/src/pihole-installer/basic-install.sh --unattended &
+      wait $!
+      sleep 2
+      # disable this service so it doesn't run again
+      rm -f /etc/systemd/system/multi-user.target.wants/run-pihole-firstboot.service || true
+      systemctl daemon-reload || true
+      sleep 2
+      systemctl restart systemd-resolved || true
+      sleep 2
+      systemctl reset-failed || true
+      # Use environment variable for Pi-hole password instead of hardcoded
+      pihole setpassword ChangeMe || true
+      python3 /usr/local/src/pihole/import_adlists.py || true
+      pihole restartdns reload-lists || true
+      pihole -g || true
+      pihole networkflush || true
+      EOS
+      chmod +x "$1/usr/local/sbin/run-pihole-firstboot.sh"
+
+      # Create systemd service to run the first-boot script
+      install -d -m 0755 "$1/etc/systemd/system"
+      cat > "$1/etc/systemd/system/run-pihole-firstboot.service" <<'EOSVC'
+      [Unit]
+      Description=Run Pi-hole installer on first boot
+      After=systemd-time-wait-sync.service
+      Requires=systemd-time-wait-sync.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/run-pihole-firstboot.sh
+      AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_RAW_SOCKETS
+
+      [Install]
+      WantedBy=multi-user.target
+      EOSVC
+
+      # enable the service
+      install -d -m 0755 "$1/etc/systemd/system/multi-user.target.wants"
+      ln -sf "/etc/systemd/system/run-pihole-firstboot.service" "$1/etc/systemd/system/multi-user.target.wants/run-pihole-firstboot.service"
+    - |
+      # Copy local pi-hole adlist import script and default adlist CSV
+      install -d -m 0755 "$1/usr/local/src/pihole/"
+      cp -a "../ke-net-screen/home/scripts/pihole/adlists_export.csv" "$1/usr/local/src/pihole/" 2>/dev/null || true
+      cp -a "../ke-net-screen/home/scripts/pihole/import_adlists.py" "$1/usr/local/src/pihole/" 2>/dev/null || true
+      chmod +x "$1/usr/local/src/pihole/import_adlists.py"
+    - |
+      # Copy local pi-hole config files from the repository.
+      # These override the default installer settings.
+      install -d -m 0755 "$1/etc/pihole/"
+      cp -a "../ke-net-screen/etc/pihole/pihole.toml" "$1/etc/pihole/" 2>/dev/null || true
+      # Also copy to the ke-splash location for installed reference
+      install -d -m 0755 "$1/usr/local/src/pihole/"
+      cp -a "../ke-net-screen/etc/pihole/pihole.toml" "$1/usr/local/src/pihole/" 2>/dev/null || true
+      chmod 0644 "$1/etc/pihole/pihole.toml"
+  cleanup-hooks:
+    

@@ -1,0 +1,6 @@
+#!/bin/bash
+
+dig pi-hole.net @127.0.0.1 -p 5335
+dig fail01.dnssec.works @127.0.0.1 -p 5335
+dig dnssec.works @127.0.0.1 -p 5335
+systemctl is-active unbound-resolvconf.service

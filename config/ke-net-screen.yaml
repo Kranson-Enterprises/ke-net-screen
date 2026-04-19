@@ -1,0 +1,65 @@
+device:
+  layer: rpi5
+  user1: localadmin
+  user1pass: $PIHOLE_PASSWORD
+  hostname: ke-localdns
+  keyboard_layout: us
+  locale  : en_US.UTF-8
+  timezone: America/Detroit
+
+locale:
+  default: en_US.UTF-8
+  keyboard_keymap: us
+  keyboard_layout: us
+  timezone: America/Detroit
+
+image:
+  layer: image-rpios
+  boot_part_size: 300%
+  root_part_size: 200%
+  name: deb13-arm64-splash
+# compression=zstd
+# Partition sizes cause size increase to fill device, only needed on final prod deploy
+# image_boot_part_size=512M
+# image_root_part_size=115G
+# FW_SIZE=512M
+# ROOT_SIZE=115G
+
+layer:
+  base: trixie-minbase
+  splash: rpi-splash-screen
+  ke: ke-net-screen
+
+# ssh:
+#  pubkey_user1: $(< ${HOME}/.ssh/id_ed25519.pub)
+#  pubkey_only: n
+
+ke:
+  environment: development
+  debug: true
+  name: keapp
+  component: frontend
+
+network:
+  interface: eth0
+  use_dhcp: n
+  ipaddress: 192.168.0.53
+  ipnetmask: 24
+  netmask: 255.255.255.0
+  gateway: 192.168.0.1
+  dns0: 127.0.0.1
+  dns1: 8.8.8.8
+  dns2: 9.9.9.9
+  domain: lan
+
+splash:
+  # Path to your custom splash screen image (24-bit TGA, max 1920x1080, <224 colours)
+  # Leave empty or comment out to skip splash screen installation
+  # Can be absolute or relative to the project root
+  image_path: ke-splash.tga
+  
+  # Skip image validation checks (not recommended for production)
+  skip_image_checks: n
+  
+  # Automatically update /boot/firmware/cmdline.txt to enable splash
+  update_cmdline: y

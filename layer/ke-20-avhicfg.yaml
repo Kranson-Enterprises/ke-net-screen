@@ -1,0 +1,115 @@
+# METABEGIN
+# X-Env-Layer-Name: ke-avhicfg
+# X-Env-Layer-Desc: Avahi mDNS Configuration
+# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Category: general
+# X-Env-Layer-Requires: ke-piholecfg
+# X-Env-VarRequires: IGconf_device_hostname,IGconf_network_ipaddress,IGconf_network_domain
+# METAEND
+mmdebstrap:
+  suite: trixie
+  variant: minbase
+  packages:
+    - avahi-daemon
+    - libnss-mdns
+  customize-hooks:
+    - |
+      install -d -m 0755 "/etc/avahi"
+      
+      # Set up network configuration based on environment variables
+      IP_ADDRESS=${IGconf_network_ipaddress:-192.168.0.72}
+      DOMAIN=${IGconf_network_domain:-lan}
+      HOST=${IGconf_device_hostname:-ke-localdns}
+      
+      cat > "$1/etc/avahi/avahi-daemon.conf" <<-EOS
+      # This file is part of avahi.
+      #
+      # See avahi-daemon.conf(5) for more information on this configuration
+      # file!
+
+      [server]
+      host-name=$HOST
+      domain-name=local
+      browse-domains=$DOMAIN
+      use-ipv4=yes
+      use-ipv6=no
+      allow-interfaces=eth0
+      #deny-interfaces=eth1
+      check-response-ttl=yes
+      #use-iff-running=no
+      enable-dbus=yes
+      disallow-other-stacks=yes
+      #allow-point-to-point=no
+      cache-entries-max=2048
+      clients-max=64
+      objects-per-client-max=512
+      entries-per-entry-group-max=16
+      ratelimit-interval-usec=1000000
+      ratelimit-burst=1000
+
+      [wide-area]
+      enable-wide-area=yes
+
+      [publish]
+      #disable-publishing=no
+      #disable-user-service-publishing=no
+      #add-service-cookie=no
+      publish-addresses=yes
+      publish-hinfo=no
+      publish-workstation=no
+      publish-domain=yes
+      #publish-dns-servers=$IP_ADDRESS
+      publish-resolv-conf-dns-servers=no
+      publish-aaaa-on-ipv4=no
+      publish-a-on-ipv6=no
+
+      [reflector]
+      enable-reflector=no
+      reflect-ipv=yes
+      reflect-filters=_airplay._tcp.local,_raop._tcp.local
+
+      [rlimits]
+      #rlimit-as=
+      #rlimit-core=0
+      #rlimit-data=8388608
+      #rlimit-fsize=0
+      #rlimit-nofile=768
+      #rlimit-stack=8388608
+      #rlimit-nproc=3
+      EOS
+    - |
+      # Set up custom nsswitch.conf to prioritize mDNS resolution
+      cat > "$1/etc/nsswitch.conf" <<'EOTC'
+      # /etc/nsswitch.conf
+      #
+      # BKR: Network security and performance tuned
+
+      passwd:         files
+      group:          files
+      shadow:         files
+      gshadow:        files
+
+      hosts: mymachines resolve [!UNAVAIL=return] files myhostname mdns4_minimal [NOTFOUND=return] dns
+      networks:       files
+
+      protocols:      db files
+      services:       db files
+      ethers:         db files
+      rpc:            db files
+
+      netgroup:       nis
+      EOTC
+    - |
+      install -d -m 0755 "/etc/avahi/services"
+      cat > "$1/etc/avahi/services/http.service" <<-EOSHTTP
+      <?xml version="1.0" standalone='no'?>
+      <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+      <service-group>
+        <name replace-wildcards="yes">Pi-hole Server on %h</name>
+        <service>
+          <type>_http._tcp</type>
+          <port>80</port>
+        </service>
+      </service-group>    
+      EOSHTTP
+  cleanup-hooks:

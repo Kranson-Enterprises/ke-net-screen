@@ -1,0 +1,42 @@
+# METABEGIN
+# X-Env-Layer-Name: ke-net-screen
+# X-Env-Layer-Desc: Kranson Enterprise Layer description
+# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Category: general
+# X-Env-Layer-Requires: systemd-net-min,ke-unbcfg,ke-piholecfg,ke-avhicfg
+#
+# X-Env-VarPrefix: ke
+# X-Env-VarPrefix-Desc: Prefix for all environment variables defined in this layer
+#
+# X-Env-VarRequires: HOME,IGconf_device_user1
+# X-Env-VarRequires-Valid: regex:^/.*,string,regex:^(unix|tcp)://.*
+#
+# X-Env-VarOptional: IGconf_device_user1pass,LOG_LEVEL
+# X-Env-VarOptional-Valid: string,debug,info,warn,error
+# METAEND
+mmdebstrap:
+  suite: trixie
+  variant: minbase
+  packages:
+    - vim
+  dpkgopts:
+    - path-exclude=/usr/share/man/*
+    - path-include=/usr/share/man/man[1-9]/*
+    - path-exclude=/usr/share/locale/*
+    - path-include=/usr/share/locale/locale.alias
+    - path-exclude=/usr/share/doc/*
+    - path-include=/usr/share/doc/*/copyright
+    - path-include=/usr/share/doc/*/changelog.Debian.*
+    - path-exclude=/usr/share/{doc,info,man,omf,help,gnome/help}/*
+    - path-exclude=/usr/share/lintian/*    
+  customize-hooks:
+    - |
+      chroot "$1" mkdir -p "/usr/local/bin"
+
+      # Send in utility scripts
+      cp "../ke-net-screen/home/scripts/unbound/"* "$1/usr/local/bin/"
+      chmod 755 "$1/usr/local/bin/"*
+      uchroot "$1" 'ln -s /usr/local/bin/ /home/$IGconf_device_user1/scripts'
+      uchroot "$1" 'ln -s /usr/local/bin/unbound-readme.txt /home/$IGconf_device_user1/unbound-readme.txt'
+  cleanup-hooks:
+    - rm -rf $1/var/lib/apt/lists/* || true

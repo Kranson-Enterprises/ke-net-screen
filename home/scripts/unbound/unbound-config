@@ -1,0 +1,243 @@
+#!/bin/bash
+
+# Unbound Configuration Viewer Script
+# Displays active (non-comment) configuration lines from Unbound config files
+# Searches recursively through /etc/unbound/ directory
+
+set -euo pipefail
+
+# Configuration
+UNBOUND_CONFIG_DIR="/etc/unbound"
+MAIN_CONFIG_FILE="/etc/unbound/unbound.conf"
+
+# Function to display help
+show_help() {
+    cat << EOF
+Unbound Configuration Viewer Script
+
+USAGE:
+    $(basename "$0") [OPTIONS]
+
+DESCRIPTION:
+    Displays the active configuration lines from Unbound configuration files.
+    Filters out comments (lines starting with #) and empty lines to show
+    only the effective configuration settings.
+
+OPTIONS:
+    -h, --help      Show this help message and exit
+    -v, --verbose   Show additional information about config files found
+    -a, --all       Include comment lines (show full configuration)
+    -f, --file      Show only the main config file, not included files
+
+OUTPUT:
+    Shows active configuration directives from:
+    - Main config: $MAIN_CONFIG_FILE
+    - Include files: $UNBOUND_CONFIG_DIR/*.conf
+    - Directory configs: $UNBOUND_CONFIG_DIR/conf.d/*.conf
+
+EXAMPLES:
+    $(basename "$0")           # Show active config lines only
+    $(basename "$0") --all     # Show complete config including comments
+    $(basename "$0") --file    # Show only main config file
+    $(basename "$0") --verbose # Show additional file information
+
+REQUIREMENTS:
+    - grep command (or rgrep for recursive search)
+    - Access to Unbound configuration files
+    - May require sudo privileges for protected config files
+
+EOF
+}
+
+# Function to check if command exists
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+# Function to log messages
+log_info() {
+    [[ "${VERBOSE:-false}" != "true" ]] || echo "ℹ️  $*"
+}
+
+log_error() {
+    echo "❌ Error: $*" >&2
+}
+
+log_success() {
+    echo "✅ $*"
+}
+
+# Function to check file accessibility
+check_file_access() {
+    local file=$1
+    
+    if [[ ! -e "$file" ]]; then
+        return 1
+    fi
+    
+    if [[ -r "$file" ]]; then
+        return 0
+    elif command_exists "sudo"; then
+        # Check if we can read with sudo
+        if sudo test -r "$file" 2>/dev/null; then
+            return 2  # Needs sudo
+        fi
+    fi
+    
+    return 1  # Not accessible
+}
+
+# Parse command line arguments
+VERBOSE=false
+SHOW_ALL=false
+MAIN_FILE_ONLY=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -v|--verbose)
+            VERBOSE=true
+            shift
+            ;;
+        -a|--all)
+            SHOW_ALL=true
+            shift
+            ;;
+        -f|--file)
+            MAIN_FILE_ONLY=true
+            shift
+            ;;
+        *)
+            log_error "Unknown option: $1"
+            echo "Use --help for usage information."
+            exit 1
+            ;;
+    esac
+done
+
+# Check for required commands
+GREP_CMD=""
+if command_exists "rgrep"; then
+    GREP_CMD="rgrep"
+    log_info "Using rgrep for recursive search"
+elif command_exists "grep"; then
+    GREP_CMD="grep -r"
+    log_info "Using grep -r for recursive search"
+else
+    log_error "Neither 'grep' nor 'rgrep' command found"
+    echo "Please install grep utilities to use this script."
+    exit 1
+fi
+
+# Check if Unbound configuration directory exists
+if [[ ! -d "$UNBOUND_CONFIG_DIR" ]]; then
+    log_error "Unbound configuration directory not found: $UNBOUND_CONFIG_DIR"
+    echo "Please ensure Unbound is installed and configured."
+    exit 1
+fi
+
+# Check access to main config file
+NEEDS_SUDO=false
+case $(check_file_access "$MAIN_CONFIG_FILE") in
+    0)
+        log_info "Direct access to configuration files available"
+        ;;
+    2)
+        log_info "Configuration files require sudo access"
+        NEEDS_SUDO=true
+        ;;
+    1)
+        log_error "Cannot access Unbound configuration files"
+        echo "Please check file permissions or ensure Unbound is properly installed."
+        exit 1
+        ;;
+esac
+
+# Build grep pattern based on options
+if [[ "$SHOW_ALL" == "true" ]]; then
+    GREP_PATTERN=""
+    log_info "Showing complete configuration (including comments)"
+else
+    # Filter out comments and empty lines
+    GREP_PATTERN="-v '^ *#\|^$'"
+    log_info "Showing active configuration lines only (comments filtered)"
+fi
+
+# Build command prefix
+CMD_PREFIX=""
+if [[ "$NEEDS_SUDO" == "true" ]]; then
+    CMD_PREFIX="sudo "
+fi
+
+# Display configuration
+echo ""
+echo "📋 Unbound Configuration Analysis"
+echo "=================================="
+
+if [[ "$MAIN_FILE_ONLY" == "true" ]]; then
+    echo "📁 Configuration file: $MAIN_CONFIG_FILE"
+    TARGET_PATH="$MAIN_CONFIG_FILE"
+else
+    echo "📁 Configuration directory: $UNBOUND_CONFIG_DIR"
+    echo "🔍 Searching pattern: ${MAIN_CONFIG_FILE}*"
+    TARGET_PATH="${MAIN_CONFIG_FILE}*"
+fi
+
+echo ""
+
+# Count total config files if verbose
+if [[ "$VERBOSE" == "true" ]]; then
+    if [[ "$MAIN_FILE_ONLY" == "true" ]]; then
+        if [[ -f "$MAIN_CONFIG_FILE" ]]; then
+            echo "📊 Found 1 configuration file"
+        else
+            echo "⚠️  Main configuration file not found"
+        fi
+    else
+        CONFIG_COUNT=$(${CMD_PREFIX}find "$UNBOUND_CONFIG_DIR" -name "*.conf" -type f 2>/dev/null | wc -l)
+        echo "📊 Found $CONFIG_COUNT configuration files"
+    fi
+    echo ""
+fi
+
+# Execute the appropriate command
+echo "🔧 Active Configuration Directives:"
+echo "-----------------------------------"
+
+if [[ "$SHOW_ALL" == "true" ]]; then
+    if [[ "$MAIN_FILE_ONLY" == "true" ]]; then
+        ${CMD_PREFIX}cat "$MAIN_CONFIG_FILE" 2>/dev/null || {
+            log_error "Failed to read configuration file"
+            exit 1
+        }
+    else
+        ${CMD_PREFIX}${GREP_CMD} . "$TARGET_PATH" 2>/dev/null || {
+            log_error "Failed to read configuration files"
+            exit 1
+        }
+    fi
+else
+    if [[ "$MAIN_FILE_ONLY" == "true" ]]; then
+        ${CMD_PREFIX}grep -v '^ *#\|^$' $MAIN_CONFIG_FILE 2>/dev/null || {
+            log_error "Failed to process configuration file"
+            exit 1
+        }
+    else
+        ${CMD_PREFIX}${GREP_CMD} -v '^ *#\|^$' $TARGET_PATH 2>/dev/null || {
+            log_error "Failed to process configuration files"
+            exit 1
+        }
+    fi
+fi
+
+echo ""
+log_success "Configuration analysis completed"
+
+if [[ "$VERBOSE" == "true" ]]; then
+    echo ""
+    echo "💡 Tip: Use 'unbound-checkconf' to validate configuration syntax"
+    echo "💡 Tip: Use 'systemctl status unbound' to check service status"
+fi

@@ -1,0 +1,503 @@
+#!/bin/bash
+
+# Unbound Statistics Display Script
+# Shows comprehensive DNS statistics from the Unbound recursive resolver
+# Displays performance metrics, query counts, and cache statistics
+
+set -euo pipefail
+
+# Configuration
+UNBOUND_CONF="/etc/unbound/unbound.conf"
+STATS_OUTPUT_FILE=""
+
+# Function to display help
+show_help() {
+    cat << EOF
+Unbound Statistics Display Script
+
+USAGE:
+    $(basename "$0") [OPTIONS]
+
+DESCRIPTION:
+    Displays comprehensive statistics from the Unbound DNS resolver including:
+    - Query performance metrics (queries/second, response times)
+    - Cache statistics (hit rates, miss rates)
+    - Memory usage information
+    - Thread and network statistics
+    - DNS query type breakdown
+
+    Uses 'stats_noreset' command which shows cumulative statistics without
+    resetting the counters, preserving historical data.
+
+OPTIONS:
+    -h, --help      Show this help message and exit
+    -o, --output    Save statistics to a file instead of displaying
+    -f, --file FILE Specify output filename (implies --output)
+    -q, --quiet     Suppress informational output
+    -r, --raw       Show raw output without formatting
+    -v, --verbose   Show additional raw statistics in formatted output
+    -w, --watch     Continuous monitoring mode (updates every 5 seconds)
+
+OUTPUT STATISTICS:
+    • Total queries processed
+    • Cache hit/miss ratios  
+    • Memory usage (cache, message, rrset)
+    • Query response times
+    • Protocol statistics (UDP/TCP)
+    • DNSSEC validation counts
+    • Error and timeout statistics
+
+EXAMPLES:
+    $(basename "$0")                    # Show current statistics
+    $(basename "$0") --output           # Save to timestamped file
+    $(basename "$0") -f stats.txt       # Save to specific file
+    $(basename "$0") --watch            # Continuous monitoring
+    $(basename "$0") --raw              # Raw unformatted output
+    $(basename "$0") --verbose          # Show additional raw stats
+
+REQUIREMENTS:
+    - unbound-control command must be available
+    - Unbound service must be running with statistics enabled
+    - bc (calculator) command for percentage calculations
+    - May require sudo privileges depending on system configuration
+
+EOF
+}
+
+# Function to check if command exists
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+# Function to log messages
+log_info() {
+    [[ "${QUIET:-false}" != "true" ]] && echo "ℹ️  $*"
+}
+
+log_error() {
+    echo "❌ Error: $*" >&2
+}
+
+log_success() {
+    [[ "${QUIET:-false}" != "true" ]] && echo "✅ $*"
+}
+
+# Function to format time values into human readable format
+format_time() {
+    local seconds="$1"
+    local days=$((${seconds%.*} / 86400))
+    local hours=$(((${seconds%.*} % 86400) / 3600))
+    local mins=$(((${seconds%.*} % 3600) / 60))
+    local secs=$((${seconds%.*} % 60))
+    
+    if [[ $days -gt 0 ]]; then
+        printf "%dd %02dh %02dm %02ds" $days $hours $mins $secs
+    elif [[ $hours -gt 0 ]]; then
+        printf "%dh %02dm %02ds" $hours $mins $secs
+    elif [[ $mins -gt 0 ]]; then
+        printf "%dm %02ds" $mins $secs
+    else
+        printf "%.3fs" "$seconds"
+    fi
+}
+
+# Function to format large numbers with commas
+format_number() {
+    local num="$1"
+    printf "%'d" "${num%.*}" 2>/dev/null || echo "$num"
+}
+
+# Function to calculate percentage
+calc_percentage() {
+    local part="$1"
+    local total="$2"
+    if [[ "$total" -gt 0 ]]; then
+        if command_exists "bc"; then
+            echo "scale=1; $part * 100 / $total" | bc 2>/dev/null || echo "0.0"
+        else
+            # Fallback without bc
+            echo $(( (part * 1000 / total + 5) / 10 ))
+        fi
+    else
+        echo "0.0"
+    fi
+}
+
+# Function to extract value from stats
+extract_value() {
+    local stats="$1"
+    local key="$2"
+    echo "$stats" | grep "^$key=" | cut -d'=' -f2
+}
+
+# Function to format statistics output
+format_stats() {
+    local raw_stats="$1"
+    
+    echo "📊 Unbound DNS Statistics Summary"
+    echo "================================"
+    echo ""
+    
+    # Extract key values for calculations
+    local total_queries=$(extract_value "$raw_stats" "total.num.queries")
+    local total_cachehits=$(extract_value "$raw_stats" "total.num.cachehits")
+    local total_cachemiss=$(extract_value "$raw_stats" "total.num.cachemiss")
+    local total_prefetch=$(extract_value "$raw_stats" "total.num.prefetch")
+    local time_up=$(extract_value "$raw_stats" "time.up")
+    local recursion_avg=$(extract_value "$raw_stats" "total.recursion.time.avg")
+    local recursion_median=$(extract_value "$raw_stats" "total.recursion.time.median")
+    
+    # System Information
+    echo "🕒 System Information:"
+    echo "---------------------"
+    if [[ -n "$time_up" ]]; then
+        echo "  Uptime: $(format_time "$time_up")"
+    fi
+    echo "  Timestamp: $(date)"
+    echo ""
+    
+    # Overall Statistics
+    echo "📈 Overall Performance:"
+    echo "----------------------"
+    if [[ -n "$total_queries" && "$total_queries" -gt 0 ]]; then
+        echo "  Total Queries: $(format_number "$total_queries")"
+        
+        if [[ -n "$total_cachehits" && -n "$total_cachemiss" ]]; then
+            local cache_hit_rate=$(calc_percentage "$total_cachehits" "$total_queries")
+            echo "  Cache Hit Rate: ${cache_hit_rate}% ($(format_number "$total_cachehits") hits)"
+            echo "  Cache Miss Rate: $((100 - ${cache_hit_rate%.*}))% ($(format_number "$total_cachemiss") misses)"
+        fi
+        
+        if [[ -n "$total_prefetch" ]]; then
+            echo "  Prefetch Queries: $(format_number "$total_prefetch")"
+        fi
+        
+        if [[ -n "$time_up" && $(command_exists "bc" && echo "$time_up > 0" | bc 2>/dev/null || [[ "${time_up%.*}" -gt 0 ]] && echo "1") == "1" ]]; then
+            if command_exists "bc"; then
+                local qps=$(echo "scale=2; $total_queries / $time_up" | bc 2>/dev/null)
+            else
+                local qps=$(( total_queries * 100 / ${time_up%.*} ))
+                qps="$(( qps / 100 )).$(printf "%02d" $(( qps % 100 )))"
+            fi
+            echo "  Queries/Second: ${qps}"
+        fi
+    fi
+    echo ""
+    
+    # Query Response Times
+    echo "⚡ Response Times:"
+    echo "-----------------"
+    if [[ -n "$recursion_avg" ]]; then
+        echo "  Average Recursion Time: $(printf "%.3f" "$recursion_avg")s"
+    fi
+    if [[ -n "$recursion_median" ]]; then
+        echo "  Median Recursion Time: $(printf "%.3f" "$recursion_median")s"
+    fi
+    
+    local queue_time=$(extract_value "$raw_stats" "total.query.queue_time_us.max")
+    if [[ -n "$queue_time" && "$queue_time" -gt 0 ]]; then
+        echo "  Max Queue Time: ${queue_time}μs"
+    fi
+    echo ""
+    
+    # Request List Statistics
+    echo "📋 Request List:"
+    echo "---------------"
+    local req_avg=$(extract_value "$raw_stats" "total.requestlist.avg")
+    local req_max=$(extract_value "$raw_stats" "total.requestlist.max")
+    local req_exceeded=$(extract_value "$raw_stats" "total.requestlist.exceeded")
+    local req_current=$(extract_value "$raw_stats" "total.requestlist.current.all")
+    
+    if [[ -n "$req_avg" ]]; then
+        echo "  Average Requests: $(printf "%.2f" "$req_avg")"
+    fi
+    if [[ -n "$req_max" ]]; then
+        echo "  Peak Requests: $(format_number "$req_max")"
+    fi
+    if [[ -n "$req_current" ]]; then
+        echo "  Current Requests: $(format_number "$req_current")"
+    fi
+    if [[ -n "$req_exceeded" && "$req_exceeded" -gt 0 ]]; then
+        echo "  ⚠️  Exceeded Limit: $(format_number "$req_exceeded") times"
+    fi
+    echo ""
+    
+    # Cache Statistics (detailed)
+    echo "💾 Cache Details:"
+    echo "----------------"
+    echo "$raw_stats" | grep -E "^(total\.num\.cache|msg\.cache|rrset\.cache)" | while IFS= read -r line; do
+        local key="${line%=*}"
+        local value="${line#*=}"
+        local formatted_key="${key#total.}"
+        formatted_key="${formatted_key//./ }"
+        echo "  ${formatted_key}: $(format_number "$value")"
+    done
+    echo ""
+    
+    # Network & Protocol Statistics
+    echo "🌐 Network Statistics:"
+    echo "---------------------"
+    local tcp_usage=$(extract_value "$raw_stats" "total.tcpusage")
+    if [[ -n "$tcp_usage" ]]; then
+        echo "  TCP Usage: $tcp_usage"
+    fi
+    
+    echo "$raw_stats" | grep -E "^total\.num\.queries_(tcp|udp|ipv|cookie)" | while IFS= read -r line; do
+        local key="${line%=*}"
+        local value="${line#*=}"
+        local formatted_key="${key#total.num.}"
+        formatted_key="${formatted_key//_/ }"
+        echo "  ${formatted_key}: $(format_number "$value")"
+    done
+    echo ""
+    
+    # Security & Errors
+    echo "🔒 Security & Errors:"
+    echo "--------------------"
+    local timed_out=$(extract_value "$raw_stats" "total.num.queries_timed_out")
+    local expired=$(extract_value "$raw_stats" "total.num.expired")
+    
+    if [[ -n "$timed_out" && "$timed_out" -gt 0 ]]; then
+        echo "  ⚠️  Timed Out: $(format_number "$timed_out")"
+    fi
+    if [[ -n "$expired" && "$expired" -gt 0 ]]; then
+        echo "  ⚠️  Expired: $(format_number "$expired")"
+    fi
+    
+    echo "$raw_stats" | grep -E "^(total\.num\.queries_ip_ratelimited|num\.answer\.rcode\.|unwanted|num\.answer\.secure|num\.answer\.bogus)" | while IFS= read -r line; do
+        local key="${line%=*}"
+        local value="${line#*=}"
+        if [[ "$value" -gt 0 ]]; then
+            local formatted_key="${key#total.}"
+            formatted_key="${formatted_key//\./ }"
+            echo "  ${formatted_key}: $(format_number "$value")"
+        fi
+    done
+    echo ""
+    
+    # Thread Statistics (if multi-threaded)
+    local thread_stats=$(echo "$raw_stats" | grep "^thread[0-9]" | head -1)
+    if [[ -n "$thread_stats" ]]; then
+        echo "🧵 Thread Breakdown:"
+        echo "-------------------"
+        echo "$raw_stats" | grep "^thread[0-9]\.num\.queries=" | while IFS= read -r line; do
+            local thread="${line%%.num.queries=*}"
+            local queries="${line#*=}"
+            echo "  ${thread}: $(format_number "$queries") queries"
+        done
+        echo ""
+    fi
+    
+    # Additional Raw Statistics (if verbose mode or debugging)
+    if [[ "${SHOW_RAW_EXTRAS:-false}" == "true" ]]; then
+        echo "📊 Additional Statistics:"
+        echo "------------------------"
+        echo "$raw_stats" | grep -vE "^(thread|total|time)\." | while IFS= read -r line; do
+            echo "  $line"
+        done
+    fi
+}
+
+# Function to get statistics
+get_unbound_stats() {
+    local use_sudo=$1
+    local cmd_prefix=""
+    
+    if [[ "$use_sudo" == "true" ]]; then
+        cmd_prefix="sudo "
+        log_info "Retrieving statistics with sudo..."
+    else
+        log_info "Retrieving statistics..."
+    fi
+    
+    if ${cmd_prefix}unbound-control -c "$UNBOUND_CONF" stats_noreset 2>/dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Parse command line arguments
+QUIET=false
+OUTPUT_MODE=false
+RAW_MODE=false
+WATCH_MODE=false
+VERBOSE_MODE=false
+OUTPUT_FILE=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -q|--quiet)
+            QUIET=true
+            shift
+            ;;
+        -o|--output)
+            OUTPUT_MODE=true
+            shift
+            ;;
+        -f|--file)
+            if [[ -n "${2:-}" ]]; then
+                OUTPUT_FILE="$2"
+                OUTPUT_MODE=true
+                shift 2
+            else
+                log_error "Option --file requires a filename"
+                exit 1
+            fi
+            ;;
+        -r|--raw)
+            RAW_MODE=true
+            shift
+            ;;
+        -v|--verbose)
+            VERBOSE_MODE=true
+            shift
+            ;;
+        -w|--watch)
+            WATCH_MODE=true
+            shift
+            ;;
+        *)
+            log_error "Unknown option: $1"
+            echo "Use --help for usage information."
+            exit 1
+            ;;
+    esac
+done
+
+# Check if unbound-control is available
+if ! command_exists "unbound-control"; then
+    log_error "unbound-control command not found"
+    echo "Please ensure Unbound is installed and unbound-control is in your PATH."
+    exit 1
+fi
+
+# Check if bc is available (for calculations)
+if ! command_exists "bc"; then
+    log_info "bc (calculator) not found - some calculations may be limited"
+fi
+
+# Check if Unbound config file exists
+if [[ ! -f "$UNBOUND_CONF" ]]; then
+    log_error "Unbound configuration file not found: $UNBOUND_CONF"
+    echo "Please check your Unbound installation."
+    exit 1
+fi
+
+# Set up output file if needed
+if [[ "$OUTPUT_MODE" == "true" && -z "$OUTPUT_FILE" ]]; then
+    TIMESTAMP=$(date '+%y%m%d-%H%M%S')
+    OUTPUT_FILE="$HOME/unbound-stats-$TIMESTAMP.txt"
+fi
+
+# Function to display stats once
+display_stats() {
+    # Try to get statistics without sudo first, then with sudo
+    local raw_stats=""
+    
+    if raw_stats=$(get_unbound_stats false); then
+        log_success "Statistics retrieved successfully"
+    elif command_exists "sudo"; then
+        log_info "Failed without sudo, trying with sudo..."
+        if raw_stats=$(get_unbound_stats true); then
+            log_success "Statistics retrieved successfully (with sudo)"
+        else
+            log_error "Failed to retrieve statistics even with sudo"
+            return 1
+        fi
+    else
+        log_error "Failed to retrieve statistics and sudo is not available"
+        return 1
+    fi
+    
+    # Output or display statistics
+    if [[ "$OUTPUT_MODE" == "true" ]]; then
+        if [[ "$RAW_MODE" == "true" ]]; then
+            echo "$raw_stats" > "$OUTPUT_FILE"
+        else
+            if [[ "$VERBOSE_MODE" == "true" ]]; then
+                SHOW_RAW_EXTRAS=true format_stats "$raw_stats" > "$OUTPUT_FILE"
+            else
+                format_stats "$raw_stats" > "$OUTPUT_FILE"
+            fi
+        fi
+        log_success "Statistics saved to: $OUTPUT_FILE"
+        
+        # Show file info
+        if command_exists "wc"; then
+            local line_count=$(wc -l < "$OUTPUT_FILE" 2>/dev/null || echo "unknown")
+            log_info "File contains $line_count lines"
+        fi
+    else
+        if [[ "$RAW_MODE" == "true" ]]; then
+            echo "$raw_stats"
+        else
+            if [[ "$VERBOSE_MODE" == "true" ]]; then
+                SHOW_RAW_EXTRAS=true format_stats "$raw_stats"
+            else
+                format_stats "$raw_stats"
+            fi
+        fi
+    fi
+    
+    return 0
+}
+
+# Main execution
+if [[ "$WATCH_MODE" == "true" ]]; then
+    log_info "Starting continuous monitoring mode (Ctrl+C to stop)"
+    echo "Press Ctrl+C to stop monitoring..."
+    echo ""
+    
+    while true; do
+        clear
+        echo "🕐 $(date '+%Y-%m-%d %H:%M:%S') - Unbound Statistics (Live)"
+        echo "============================================="
+        echo ""
+        
+        if ! display_stats; then
+            log_error "Failed to retrieve statistics in watch mode"
+            break
+        fi
+        
+        echo ""
+        echo "📱 Updating in 5 seconds... (Ctrl+C to stop)"
+        sleep 5 || break
+    done
+else
+    # Single statistics display
+    if [[ "$QUIET" != "true" ]]; then
+        echo ""
+        echo "📡 Retrieving Unbound DNS Statistics..."
+        echo "======================================"
+    fi
+    
+    if ! display_stats; then
+        echo ""
+        echo "Possible causes:"
+        echo "  - Unbound service is not running"
+        echo "  - Statistics not enabled in configuration"
+        echo "  - Insufficient permissions"
+        echo "  - Unbound control socket not accessible"
+        echo ""
+        echo "Try checking Unbound status with: systemctl status unbound"
+        exit 1
+    fi
+    
+    if [[ "$QUIET" != "true" ]]; then
+        echo ""
+        log_success "Statistics retrieval completed"
+        echo ""
+        echo "💡 Tips:"
+        echo "  - Use --watch for continuous monitoring"
+        echo "  - Use --output to save statistics to file"
+        echo "  - Use 'unbound-control stats' to reset counters"
+        echo "  - Check 'man unbound-control' for more options"
+    fi
+fi
+
+

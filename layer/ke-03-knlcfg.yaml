@@ -1,0 +1,31 @@
+# METABEGIN
+# X-Env-Layer-Name: ke-knlcfg
+# X-Env-Layer-Desc: Kernel Configuration
+# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Category: networking
+# METAEND
+mmdebstrap:
+  suite: trixie
+  variant: minbase
+  packages:
+      - locales    
+  customize-hooks:
+    - |
+      # Set locale to en_US.UTF-8
+      chroot $1 locale-gen en_US.UTF-8
+      chroot $1 update-locale LANG=en_US.UTF-8
+    - |
+      # Tune the Kernel parameters for networking performance
+      # Set swappiness to 10 instead of default 60
+      # Make vm dirty pages less aggressive
+      # Increase unbound socket buffer sizes for better performance
+      set -eu  # Exit on error, treat unset variables as errors
+      install -d -m 0755 "$1/etc/sysctl.d"
+      cp "../ke-net-screen/etc/sysctl.d/00-swappiness.conf" "$1/etc/sysctl.d" 2>/dev/null || true
+      cp "../ke-net-screen/etc/sysctl.d/20-iodiskperf.conf" "$1/etc/sysctl.d" 2>/dev/null || true
+      cp "../ke-net-screen/etc/sysctl.d/99-unbound-tuning.conf" "$1/etc/sysctl.d" 2>/dev/null || true
+    - |
+      # Tune the boot parameters for minimal resource usage
+      # Disable bluetooth and other services not needed for headless servers
+      cp "../ke-net-screen/boot/firmware/config.txt" "$1/boot/firmware" 2>/dev/null || true
+      cp "../ke-net-screen/boot/firmware/cmdline.txt" "$1/boot/firmware" 2>/dev/null || true
