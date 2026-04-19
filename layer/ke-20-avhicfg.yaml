@@ -14,10 +14,10 @@ mmdebstrap:
     - libnss-mdns
   customize-hooks:
     - |
-      install -d -m 0755 "/etc/avahi"
+      install -d -m 0755 "$1/etc/avahi"
       
       # Set up network configuration based on environment variables
-      IP_ADDRESS=${IGconf_network_ipaddress:-192.168.0.53}
+      IP_ADDRESS=${IGconf_network_ipaddress:?IGconf_network_ipaddress is required}
       DOMAIN=${IGconf_network_domain:-lan}
       HOST=${IGconf_device_hostname:-ke-localdns}
       
@@ -100,7 +100,7 @@ mmdebstrap:
       netgroup:       nis
       EOTC
     - |
-      install -d -m 0755 "/etc/avahi/services"
+      install -d -m 0755 "$1/etc/avahi/services"
       cat > "$1/etc/avahi/services/http.service" <<-EOSHTTP
       <?xml version="1.0" standalone='no'?>
       <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
@@ -112,4 +112,40 @@ mmdebstrap:
         </service>
       </service-group>    
       EOSHTTP
+    - |
+      # Install DNS health checker and run it once after boot, then hourly.
+      install -d -m 0755 "$1/usr/local/bin"
+      cp -a "../ke-net-screen/home/scripts/monitoring/dns-health-check.sh" "$1/usr/local/bin/dns-health-check.sh" 2>/dev/null || true
+      chmod 0755 "$1/usr/local/bin/dns-health-check.sh"
+
+      install -d -m 0755 "$1/etc/systemd/system"
+      cat > "$1/etc/systemd/system/dns-health-check.service" <<'EOSVC'
+      [Unit]
+      Description=DNS stack health check
+      Wants=network-online.target
+      After=network-online.target pihole-FTL.service unbound.service avahi-daemon.service systemd-resolved.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/dns-health-check.sh
+
+      [Install]
+      WantedBy=multi-user.target
+      EOSVC
+
+      cat > "$1/etc/systemd/system/dns-health-check.timer" <<'EOTMR'
+      [Unit]
+      Description=Run DNS stack health checks every hour
+
+      [Timer]
+      OnBootSec=2min
+      OnUnitActiveSec=1h
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+      EOTMR
+
+      install -d -m 0755 "$1/etc/systemd/system/timers.target.wants"
+      ln -sf "/etc/systemd/system/dns-health-check.timer" "$1/etc/systemd/system/timers.target.wants/dns-health-check.timer"
   cleanup-hooks:
