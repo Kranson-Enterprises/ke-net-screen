@@ -65,6 +65,9 @@ For experienced users who have the prerequisites:
 
 ```bash
 cd ke-net-screen
+cp .env.example .env
+# edit .env and set a strong PIHOLE_PASSWORD value
+./ke-net-screen.sh --preflight
 ./ke-net-screen.sh
 # Insert SD card when prompted
 # SD card gets erased!!
@@ -72,6 +75,35 @@ cd ke-net-screen
 # Image is copied onto SD card
 sudo shutdown now
 # Remove USB, reboot, it will run from the SD card
+```
+
+### Preflight and Build-Only Modes
+
+Use preflight mode to validate host prerequisites before any destructive actions:
+
+```bash
+./ke-net-screen.sh --preflight
+```
+
+Use build-only mode to generate artifacts without writing to SD card:
+
+```bash
+./ke-net-screen.sh --build-only
+```
+
+Build-only output is written under the generated build directory (for example: `ke-net-screen-build/`).
+If you run the default mode and provide a missing/nonexistent device path, the script automatically falls back to build-only and skips flashing.
+The `PIHOLE_PASSWORD` value is embedded into a one-time secret file on the boot partition during image build, applied on first boot, and then deleted by the first-boot setup script.
+
+### Post-Boot Acceptance Checks
+
+After first boot, validate service readiness:
+
+```bash
+sudo systemctl status pihole-FTL unbound avahi-daemon systemd-resolved
+sudo systemctl status dns-health-check.timer
+sudo journalctl -u dns-health-check.service -n 100 --no-pager
+dig @127.0.0.1 github.com
 ```
 
 ## Initial Setup

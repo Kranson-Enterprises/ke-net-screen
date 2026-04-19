@@ -86,3 +86,47 @@ unbound-control reload
 - Unbound: `/var/log/unbound/unbound.log`
 - Avahi: `journalctl -u avahi-daemon`
 - systemd-resolved: `journalctl -u systemd-resolved`
+
+## Backup and Recovery
+
+### Backup Targets
+- `/etc/pihole/`
+- `/etc/unbound/`
+- `/etc/avahi/`
+- `/etc/systemd/resolved.conf.d/`
+- `/etc/systemd/network/`
+
+### Manual Backup Command
+```bash
+sudo tar -czf /var/backups/ke-net-screen-config-$(date +%F).tgz \
+	/etc/pihole /etc/unbound /etc/avahi /etc/systemd/resolved.conf.d /etc/systemd/network
+```
+
+### Restore Command
+```bash
+sudo tar -xzf /var/backups/ke-net-screen-config-YYYY-MM-DD.tgz -C /
+sudo systemctl restart systemd-resolved unbound pihole-FTL avahi-daemon
+```
+
+## Incident Response Quick Steps
+
+1. Confirm DNS stack process state:
+```bash
+sudo systemctl status pihole-FTL unbound avahi-daemon systemd-resolved
+```
+
+2. Inspect health-check service output:
+```bash
+sudo journalctl -u dns-health-check.service -n 200 --no-pager
+```
+
+3. Validate resolver behavior:
+```bash
+dig @127.0.0.1 github.com
+dig @127.0.0.1 pi-hole.net
+```
+
+4. If needed, restart the stack:
+```bash
+sudo systemctl restart systemd-resolved unbound pihole-FTL avahi-daemon
+```

@@ -14,93 +14,25 @@ mmdebstrap:
     - libnss-mdns
   customize-hooks:
     - |
-      install -d -m 0755 "/etc/avahi"
-      
-      # Set up network configuration based on environment variables
-      IP_ADDRESS=${IGconf_network_ipaddress:-192.168.0.53}
-      DOMAIN=${IGconf_network_domain:-lan}
-      HOST=${IGconf_device_hostname:-ke-localdns}
-      
-      cat > "$1/etc/avahi/avahi-daemon.conf" <<-EOS
-      # This file is part of avahi.
-      #
-      # See avahi-daemon.conf(5) for more information on this configuration
-      # file!
+      # Copy Avahi config from repository (single source of truth) and apply placeholders.
+      REPO_ROOT=${SRCROOT:?SRCROOT is required}
+      HOST=${IGconf_device_hostname:?IGconf_device_hostname is required}
+      IP_ADDRESS=${IGconf_network_ipaddress:?IGconf_network_ipaddress is required}
+      DOMAIN=${IGconf_network_domain:?IGconf_network_domain is required}
 
-      [server]
-      host-name=$HOST
-      domain-name=local
-      browse-domains=$DOMAIN
-      use-ipv4=yes
-      use-ipv6=no
-      allow-interfaces=eth0
-      #deny-interfaces=eth1
-      check-response-ttl=yes
-      #use-iff-running=no
-      enable-dbus=yes
-      disallow-other-stacks=yes
-      #allow-point-to-point=no
-      cache-entries-max=2048
-      clients-max=64
-      objects-per-client-max=512
-      entries-per-entry-group-max=16
-      ratelimit-interval-usec=1000000
-      ratelimit-burst=1000
-
-      [wide-area]
-      enable-wide-area=yes
-
-      [publish]
-      #disable-publishing=no
-      #disable-user-service-publishing=no
-      #add-service-cookie=no
-      publish-addresses=yes
-      publish-hinfo=no
-      publish-workstation=no
-      publish-domain=yes
-      #publish-dns-servers=$IP_ADDRESS
-      publish-resolv-conf-dns-servers=no
-      publish-aaaa-on-ipv4=no
-      publish-a-on-ipv6=no
-
-      [reflector]
-      enable-reflector=no
-      reflect-ipv=yes
-      reflect-filters=_airplay._tcp.local,_raop._tcp.local
-
-      [rlimits]
-      #rlimit-as=
-      #rlimit-core=0
-      #rlimit-data=8388608
-      #rlimit-fsize=0
-      #rlimit-nofile=768
-      #rlimit-stack=8388608
-      #rlimit-nproc=3
-      EOS
+      install -d -m 0755 "$1/etc/avahi"
+      cp -a "$REPO_ROOT/etc/avahi/avahi-daemon.conf" "$1/etc/avahi/" 2>/dev/null || true
+      sed -i \
+        -e "s/IGconf_device_hostname/$HOST/g" \
+        -e "s/IGconf_network_ipaddress/$IP_ADDRESS/g" \
+        -e "s/IGconf_network_domain/$DOMAIN/g" \
+        "$1/etc/avahi/avahi-daemon.conf"
     - |
-      # Set up custom nsswitch.conf to prioritize mDNS resolution
-      cat > "$1/etc/nsswitch.conf" <<'EOTC'
-      # /etc/nsswitch.conf
-      #
-      # BKR: Network security and performance tuned
-
-      passwd:         files
-      group:          files
-      shadow:         files
-      gshadow:        files
-
-      hosts: mymachines resolve [!UNAVAIL=return] files myhostname mdns4_minimal [NOTFOUND=return] dns
-      networks:       files
-
-      protocols:      db files
-      services:       db files
-      ethers:         db files
-      rpc:            db files
-
-      netgroup:       nis
-      EOTC
+      # Copy nsswitch from repository to keep one source of truth.
+      REPO_ROOT=${SRCROOT:?SRCROOT is required}
+      cp -a "$REPO_ROOT/etc/nsswitch.conf" "$1/etc/nsswitch.conf" 2>/dev/null || true
     - |
-      install -d -m 0755 "/etc/avahi/services"
+      install -d -m 0755 "$1/etc/avahi/services"
       cat > "$1/etc/avahi/services/http.service" <<-EOSHTTP
       <?xml version="1.0" standalone='no'?>
       <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
@@ -112,4 +44,41 @@ mmdebstrap:
         </service>
       </service-group>    
       EOSHTTP
+    - |
+      # Install DNS health checker and run it once after boot, then hourly.
+      REPO_ROOT=${SRCROOT:?SRCROOT is required}
+      install -d -m 0755 "$1/usr/local/bin"
+      cp -a "$REPO_ROOT/home/scripts/monitoring/dns-health-check.sh" "$1/usr/local/bin/dns-health-check.sh" 2>/dev/null || true
+      chmod 0755 "$1/usr/local/bin/dns-health-check.sh"
+
+      install -d -m 0755 "$1/etc/systemd/system"
+      cat > "$1/etc/systemd/system/dns-health-check.service" <<'EOSVC'
+      [Unit]
+      Description=DNS stack health check
+      Wants=network-online.target
+      After=network-online.target pihole-FTL.service unbound.service avahi-daemon.service systemd-resolved.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/dns-health-check.sh
+
+      [Install]
+      WantedBy=multi-user.target
+      EOSVC
+
+      cat > "$1/etc/systemd/system/dns-health-check.timer" <<'EOTMR'
+      [Unit]
+      Description=Run DNS stack health checks every hour
+
+      [Timer]
+      OnBootSec=2min
+      OnUnitActiveSec=1h
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+      EOTMR
+
+      install -d -m 0755 "$1/etc/systemd/system/timers.target.wants"
+      ln -sf "/etc/systemd/system/dns-health-check.timer" "$1/etc/systemd/system/timers.target.wants/dns-health-check.timer"
   cleanup-hooks:

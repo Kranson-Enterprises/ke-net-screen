@@ -24,12 +24,12 @@ mmdebstrap:
       install -d -m 0755 "$1/etc/systemd/resolved.conf.d/"
 
       # Set up network configuration based on environment variables
-      IP_ADDRESS=${IGconf_network_ipaddress:-192.168.0.53}
+      IP_ADDRESS=${IGconf_network_ipaddress:?IGconf_network_ipaddress is required}
       NETMASK=${IGconf_network_ipnetmask:-24}
       GATEWAY=${IGconf_network_gateway:-192.168.0.1}
       DNS0=${IGconf_network_dns0:-127.0.0.1}
-      DNS1=${IGconf_network_dns1:-1.1.1.1}
-      DNS2=${IGconf_network_dns2:-9.9.9.9}
+      DNS1=${IGconf_network_dns1:?IGconf_network_dns1 is required}
+      DNS2=${IGconf_network_dns2:?IGconf_network_dns2 is required}
       DOMAIN=${IGconf_network_domain:-lan}
 
       cat > "$1/etc/systemd/resolved.conf.d/unbound.conf" <<-EOR
@@ -43,9 +43,14 @@ mmdebstrap:
       LLMNR=no
       # Avahi daemon handles mDNS
       MulticastDNS=no
-      # WideOpenWest DNS servers
+      # Fallback DNS servers from config
       FallbackDNS=$DNS1 $DNS2
       EOR
+
+      # Remove package-default example lines containing old fallback DNS literals.
+      if [ -f "$1/etc/systemd/resolved.conf" ]; then
+        sed -i '/8\.8\.8\.8/d; /9\.9\.9\.9/d' "$1/etc/systemd/resolved.conf"
+      fi
     - |
       # Change port config of unbound for pihole installation.
       install -d -m 0755 "$1/etc/unbound/unbound.conf.d/"

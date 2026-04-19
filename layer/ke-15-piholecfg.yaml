@@ -11,10 +11,21 @@ mmdebstrap:
   setup-hooks:
     - |
       # Set up a first-boot script to run the Pi-hole installer on first boot
+      REPO_ROOT=${SRCROOT:?SRCROOT is required}
       install -d -m 0755 "$1/usr/local/sbin" "$1/usr/local/src/pihole-installer"
+      install -d -m 0755 "$1/boot/firmware/ke-secrets"
+
+      # Persist the initial Pi-hole password to the boot partition for one-time first-boot use.
+      if [ -n "${PIHOLE_PASSWORD:-}" ]; then
+        printf '%s\n' "$PIHOLE_PASSWORD" > "$1/boot/firmware/ke-secrets/pihole-admin-password.txt"
+      fi
+
+      DNS2=${IGconf_network_dns2:?IGconf_network_dns2 is required}
 
       # Add local copy of pi-hole installer script
-      cp -a "../ke-net-screen/vendors/pi-hole/automated install/basic-install.sh" "$1/usr/local/src/pihole-installer/" 2>/dev/null || true
+      cp -a "$REPO_ROOT/vendors/pi-hole/automated install/basic-install.sh" "$1/usr/local/src/pihole-installer/" 2>/dev/null || true
+      # Keep vendor DNS1 behavior intact and only replace DNS2 to avoid over-constraining upstream fallback.
+      sed -i "s/9\.9\.9\.9/$DNS2/g" "$1/usr/local/src/pihole-installer/basic-install.sh" 2>/dev/null || true
       chmod +x "$1/usr/local/src/pihole-installer/basic-install.sh"
 
       # Create first-boot script to run pi-hole installer
@@ -31,8 +42,22 @@ mmdebstrap:
       systemctl restart systemd-resolved || true
       sleep 2
       systemctl reset-failed || true
-      # Use environment variable for Pi-hole password instead of hardcoded
-      pihole setpassword Ch@ngeM3 || true
+      # Read the one-time password from the boot partition, then remove it.
+      PIHOLE_PASSWORD_FILE="/boot/firmware/ke-secrets/pihole-admin-password.txt"
+      if [ -f "$PIHOLE_PASSWORD_FILE" ]; then
+        PIHOLE_PASSWORD_VALUE="$(tr -d '\r\n' < "$PIHOLE_PASSWORD_FILE")"
+        if [ -n "$PIHOLE_PASSWORD_VALUE" ]; then
+          pihole setpassword "$PIHOLE_PASSWORD_VALUE" || true
+        else
+          echo "WARN: Pi-hole password file is empty; disabling Pi-hole web password"
+          pihole setpassword "" || true
+        fi
+        rm -f "$PIHOLE_PASSWORD_FILE" || true
+        rmdir /boot/firmware/ke-secrets 2>/dev/null || true
+      else
+        echo "WARN: Pi-hole password file is missing; disabling Pi-hole web password"
+        pihole setpassword "" || true
+      fi
       python3 /usr/local/src/pihole/import_adlists.py || true
       pihole restartdns reload-lists || true
       pihole -g || true
@@ -62,18 +87,23 @@ mmdebstrap:
       ln -sf "/etc/systemd/system/run-pihole-firstboot.service" "$1/etc/systemd/system/multi-user.target.wants/run-pihole-firstboot.service"
     - |
       # Copy local pi-hole adlist import script and default adlist CSV
+      REPO_ROOT=${SRCROOT:?SRCROOT is required}
       install -d -m 0755 "$1/usr/local/src/pihole/"
-      cp -a "../ke-net-screen/home/scripts/pihole/adlists_export.csv" "$1/usr/local/src/pihole/" 2>/dev/null || true
-      cp -a "../ke-net-screen/home/scripts/pihole/import_adlists.py" "$1/usr/local/src/pihole/" 2>/dev/null || true
+      cp -a "$REPO_ROOT/home/scripts/pihole/adlists_export.csv" "$1/usr/local/src/pihole/" 2>/dev/null || true
+      cp -a "$REPO_ROOT/home/scripts/pihole/import_adlists.py" "$1/usr/local/src/pihole/" 2>/dev/null || true
       chmod +x "$1/usr/local/src/pihole/import_adlists.py"
     - |
       # Copy local pi-hole config files from the repository.
       # These override the default installer settings.
+      REPO_ROOT=${SRCROOT:?SRCROOT is required}
+      PIHOLE_IPV4=${IGconf_network_ipaddress:?IGconf_network_ipaddress is required}
+
       install -d -m 0755 "$1/etc/pihole/"
-      cp -a "../ke-net-screen/etc/pihole/pihole.toml" "$1/etc/pihole/" 2>/dev/null || true
+      cp -a "$REPO_ROOT/etc/pihole/pihole.toml" "$1/etc/pihole/" 2>/dev/null || true
       # Also copy to the ke-splash location for installed reference
       install -d -m 0755 "$1/usr/local/src/pihole/"
-      cp -a "../ke-net-screen/etc/pihole/pihole.toml" "$1/usr/local/src/pihole/" 2>/dev/null || true
+      cp -a "$REPO_ROOT/etc/pihole/pihole.toml" "$1/usr/local/src/pihole/" 2>/dev/null || true
+      sed -i "s/\"IGconf_network_ipaddress\"/\"$PIHOLE_IPV4\"/g" "$1/etc/pihole/pihole.toml" "$1/usr/local/src/pihole/pihole.toml"
       chmod 0644 "$1/etc/pihole/pihole.toml"
   cleanup-hooks:
     

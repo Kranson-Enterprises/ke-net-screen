@@ -1,0 +1,56 @@
+# METABEGIN
+# X-Env-Layer-Name: ke-unbsrccfg
+# X-Env-Layer-Desc: Install source-built Unbound artifacts when available
+# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Category: networking
+# X-Env-Layer-Requires: ke-netcfg
+# METAEND
+mmdebstrap:
+  suite: trixie
+  variant: minbase
+  customize-hooks:
+    - |
+      # Install source-built Unbound artifacts from staging if present.
+      STAGING_ROOT="${IGconf_sys_buildroot}/staging"
+      STAGING_USR=""
+
+      if [ -d "$STAGING_ROOT" ]; then
+        while IFS= read -r candidate; do
+          if [ -x "$candidate/sbin/unbound" ] || [ -x "$candidate/bin/unbound" ]; then
+            STAGING_USR="$candidate"
+            break
+          fi
+        done < <(find "$STAGING_ROOT" -mindepth 2 -maxdepth 2 -type d -name usr 2>/dev/null | sort)
+      fi
+
+      if [ -z "$STAGING_USR" ]; then
+        echo "INFO: ke-unbsrccfg: no source-built Unbound artifacts detected under $STAGING_ROOT; falling back to package-managed unbound"
+        exit 0
+      fi
+
+      echo "INFO: ke-unbsrccfg: installing Unbound artifacts from $STAGING_USR"
+      install -d -m 0755 "$1/usr/sbin" "$1/usr/bin" "$1/usr/lib" "$1/usr/libexec"
+
+      if [ -x "$STAGING_USR/sbin/unbound" ]; then
+        cp -a "$STAGING_USR/sbin/unbound" "$1/usr/sbin/"
+      fi
+      if [ -x "$STAGING_USR/sbin/unbound-anchor" ]; then
+        cp -a "$STAGING_USR/sbin/unbound-anchor" "$1/usr/sbin/"
+      fi
+      if [ -x "$STAGING_USR/sbin/unbound-checkconf" ]; then
+        cp -a "$STAGING_USR/sbin/unbound-checkconf" "$1/usr/sbin/"
+      fi
+      if [ -x "$STAGING_USR/sbin/unbound-control" ]; then
+        cp -a "$STAGING_USR/sbin/unbound-control" "$1/usr/sbin/"
+      fi
+      if [ -x "$STAGING_USR/sbin/unbound-host" ]; then
+        cp -a "$STAGING_USR/sbin/unbound-host" "$1/usr/sbin/"
+      fi
+
+      if [ -d "$STAGING_USR/lib" ]; then
+        cp -a "$STAGING_USR/lib/libunbound"*.so* "$1/usr/lib/" 2>/dev/null || true
+      fi
+
+      if [ -d "$STAGING_USR/libexec" ]; then
+        cp -a "$STAGING_USR/libexec/unbound" "$1/usr/libexec/" 2>/dev/null || true
+      fi
