@@ -15,12 +15,17 @@ mmdebstrap:
       STAGING_USR=""
 
       if [ -d "$STAGING_ROOT" ]; then
-        while IFS= read -r candidate; do
+        staging_usr_file="$(mktemp)"
+        find "$STAGING_ROOT" -mindepth 2 -maxdepth 2 -type d -name usr 2>/dev/null | sort | while IFS= read -r candidate; do
           if [ -x "$candidate/sbin/unbound" ] || [ -x "$candidate/bin/unbound" ]; then
-            STAGING_USR="$candidate"
+            printf '%s\n' "$candidate" > "$staging_usr_file"
             break
           fi
-        done < <(find "$STAGING_ROOT" -mindepth 2 -maxdepth 2 -type d -name usr 2>/dev/null | sort)
+        done
+        if [ -s "$staging_usr_file" ]; then
+          STAGING_USR="$(cat "$staging_usr_file")"
+        fi
+        rm -f "$staging_usr_file"
       fi
 
       if [ -z "$STAGING_USR" ]; then
