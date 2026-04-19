@@ -17,6 +17,39 @@ BUILD_ONLY=0
 PREFLIGHT_ONLY=0
 MIN_FREE_MB=12288
 
+resolve_build_user_pubkey() {
+  if [[ -n "${SSH_PUBKEY_USER1:-}" ]]; then
+    return 0
+  fi
+
+  local build_user="${SUDO_USER:-${USER:-}}"
+  local build_home=""
+  local key_path=""
+
+  if [[ -n "$build_user" ]]; then
+    build_home=$(getent passwd "$build_user" | cut -d: -f6)
+  fi
+
+  if [[ -z "$build_home" ]]; then
+    build_home="${HOME:-}"
+  fi
+
+  key_path="$build_home/.ssh/id_ed25519.pub"
+
+  if [[ -z "$build_home" || ! -f "$key_path" ]]; then
+    echo "Error: SSH public key for build user is missing: $key_path"
+    echo "Create one with:"
+    echo "  ssh-keygen -t ed25519 -a 100 -f \"$build_home/.ssh/id_ed25519\" -C \"${build_user:-localadmin}@$(hostname -s)\""
+    echo "Then re-run this script."
+    return 1
+  fi
+
+  SSH_PUBKEY_USER1="$(< "$key_path")"
+  export SSH_PUBKEY_USER1
+
+  return 0
+}
+
 usage() {
   cat <<'EOF'
 Usage: ./ke-net-screen.sh [option]
@@ -75,6 +108,8 @@ require_commands() {
 }
 
 check_prereqs() {
+  resolve_build_user_pubkey || return 1
+
   require_commands || return 1
 
   if [[ ! -x "$PROJECT_ROOT/rpi-image-gen/rpi-image-gen" ]]; then
@@ -86,11 +121,6 @@ check_prereqs() {
   if [[ ! -f "$PROJECT_ROOT/config/$LAYER_CONFIG" ]]; then
     echo "Error: missing config file $PROJECT_ROOT/config/$LAYER_CONFIG"
     return 1
-  fi
-
-  if grep -q '\$[(][< ]' "$PROJECT_ROOT/config/$LAYER_CONFIG"; then
-    echo "Warning: command substitution found in config/$LAYER_CONFIG (for example ssh pubkey)."
-    echo "         Ensure the value resolves correctly for your build environment."
   fi
 
   if [[ -z "${PIHOLE_PASSWORD:-}" ]]; then
