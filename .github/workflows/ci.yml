@@ -1,0 +1,85 @@
+name: ke-net-screen-ci
+
+on:
+  push:
+    branches: ["main", "master", "feature/**"]
+    paths:
+      - "ke-net-screen.sh"
+      - "layer/**"
+      - "config/**"
+      - "etc/**"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    branches: ["main", "master"]
+    paths:
+      - "ke-net-screen.sh"
+      - "layer/**"
+      - "config/**"
+      - "etc/**"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
+    inputs:
+      run_integration_build:
+        description: "Run full image build"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  validate:
+    disable: true
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Validate shell scripts
+        run: bash -n ke-net-screen.sh
+
+      - name: Validate layer metadata
+        run: ./rpi-image-gen/rpi-image-gen metadata --lint ./layer/ke-00-layer.yaml
+
+      - name: Validate env template contract
+        run: grep -q '^PIHOLE_PASSWORD=' .env.example
+
+      - name: Guard against hardcoded Pi-hole password
+        run: |
+          if grep -R --line-number "pihole setpassword Ch@ngeM3" layer; then
+            echo "Hardcoded Pi-hole password found"
+            exit 1
+          fi
+
+  integration-build:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_integration_build }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    env:
+      PIHOLE_PASSWORD: ci-password-change-me
+    disable: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo ./rpi-image-gen/install_deps.sh
+
+      - name: Build integration image
+        run: |
+          ./rpi-image-gen/rpi-image-gen build -S . -c ke-net-screen.yaml -B ./ke-net-screen-build-ci
+
+      - name: Upload build metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: ke-net-screen-build-metadata-${{ github.sha }}
+          path: |
+            ke-net-screen-build-ci/bootstrap/**
+            ke-net-screen-build-ci/deploy-*/deployed.json
+            ke-net-screen-build-ci/deploy-*/config.yaml.zst
+          if-no-files-found: warn
+          retention-days: 14
