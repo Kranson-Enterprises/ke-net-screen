@@ -1,15 +1,43 @@
+# systemd-networkd configuration for eth0
+# Static IP configuration for Pi-hole DNS server
+# Reference: man systemd.network
+
 [Match]
+# Match the primary Ethernet interface
 Name=eth0
 
 [Network]
+# Static IP configuration (no DHCP)
 DHCP=no
-Address=192.168.0.72/24
+
+# Static IP address with CIDR notation
+Address=192.168.0.53/24
+
+# Default gateway
 Gateway=192.168.0.1
+
+# DNS servers
+# Primary: Localhost (Pi-hole on port 53)
 DNS=127.0.0.1
+# Fallback: WOW DNS servers
 DNS=75.76.160.3
 DNS=75.76.160.4
+
+# Disable IPv6 Router Advertisements
 IPv6AcceptRA=no
+
+# Disable IPv6 link-local addressing
 LinkLocalAddressing=no
 
 [Link]
+# Wait for this interface to be online before considering boot complete
 RequiredForOnline=yes
+
+[DHCPv4]
+# DHCP settings (documented for reference)
+# UseDNS=no
+# UseNTP=yes
+# UseHostname=no
+
+[Route]
+# Additional static routes can be added here
