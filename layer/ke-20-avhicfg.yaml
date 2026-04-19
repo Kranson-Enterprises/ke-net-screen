@@ -19,12 +19,14 @@ mmdebstrap:
       HOST=${IGconf_device_hostname:?IGconf_device_hostname is required}
       IP_ADDRESS=${IGconf_network_ipaddress:?IGconf_network_ipaddress is required}
       DOMAIN=${IGconf_network_domain:?IGconf_network_domain is required}
+      INTERFACE=${IGconf_network_interface:?IGconf_network_interface is required}
 
       install -d -m 0755 "$1/etc/avahi"
       cp -a "$REPO_ROOT/etc/avahi/avahi-daemon.conf" "$1/etc/avahi/" 2>/dev/null || true
       sed -i \
         -e "s/IGconf_device_hostname/$HOST/g" \
         -e "s/IGconf_network_ipaddress/$IP_ADDRESS/g" \
+        -e "s/IGconf_network_interface/$INTERFACE/g" \
         -e "s/IGconf_network_domain/$DOMAIN/g" \
         "$1/etc/avahi/avahi-daemon.conf"
     - |
