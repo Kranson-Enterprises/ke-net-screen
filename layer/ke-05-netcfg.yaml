@@ -22,15 +22,15 @@ mmdebstrap:
     - |
       #!/bin/bash
       # Set up network configuration based on environment variables
-      INTERFACE=${IGconf_network_interface:-eth0}
-      USE_DHCP=${IGconf_network_use_dhcp:-n}
+      INTERFACE=${IGconf_network_interface:?IGconf_network_interface is required}
+      USE_DHCP=${IGconf_network_use_dhcp:?IGconf_network_use_dhcp is required}
       IP_ADDRESS=${IGconf_network_ipaddress:?IGconf_network_ipaddress is required}
-      NETMASK=${IGconf_network_ipnetmask:-24}
-      GATEWAY=${IGconf_network_gateway:-192.168.0.1}
-      DNS0=${IGconf_network_dns0:-127.0.0.1}
+      NETMASK=${IGconf_network_ipnetmask:?IGconf_network_ipnetmask is required}
+      GATEWAY=${IGconf_network_gateway:?IGconf_network_gateway is required}
+      DNS0=${IGconf_network_dns0:?IGconf_network_dns0 is required}
       DNS1=${IGconf_network_dns1:?IGconf_network_dns1 is required}
       DNS2=${IGconf_network_dns2:?IGconf_network_dns2 is required}
-      DOMAIN=${IGconf_network_domain:-lan}
+      DOMAIN=${IGconf_network_domain:?IGconf_network_domain is required}
 
       if [ "$USE_DHCP" = "y" ]; then
         DHCP_MODE=yes
@@ -38,8 +38,22 @@ mmdebstrap:
         DHCP_MODE=no
       fi
 
-      NETWORK_BASE=$(python3 -c 'import ipaddress,sys; print(ipaddress.ip_network(f"{sys.argv[1]}/{sys.argv[2]}", strict=False).network_address)' "$IP_ADDRESS" "$NETMASK")
-
+      IFS=. read -r IP_OCTET1 IP_OCTET2 IP_OCTET3 IP_OCTET4 <<-EOF
+      $IP_ADDRESS
+      EOF
+      if [ "$NETMASK" -lt 0 ] || [ "$NETMASK" -gt 32 ]; then
+        echo "Invalid NETMASK prefix: $NETMASK" >&2
+        exit 1
+      fi
+      IP_INT=$(( (IP_OCTET1 << 24) | (IP_OCTET2 << 16) | (IP_OCTET3 << 8) | IP_OCTET4 ))
+      if [ "$NETMASK" -eq 0 ]; then
+        MASK_INT=0
+      else
+        MASK_INT=$(( (0xFFFFFFFF << (32 - NETMASK)) & 0xFFFFFFFF ))
+      fi
+      NETWORK_INT=$(( IP_INT & MASK_INT ))
+      NETWORK_BASE=$(( (NETWORK_INT >> 24) & 255 )).$(( (NETWORK_INT >> 16) & 255 )).$(( (NETWORK_INT >> 8) & 255 )).$(( NETWORK_INT & 255 ))
+      
       # Create systemd network configuration
       install -d "$1/etc/systemd/network"
       cat > "$1/etc/systemd/network/01-$INTERFACE.network" <<-EOF
@@ -66,7 +80,7 @@ mmdebstrap:
 
       # DNS servers
       # Primary: Localhost (Pi-hole on port 53)
-      DNS=$DNS0
+      # DNS=$DNS0 let systemd-resolved own global DNS
       # Fallback: additional DNS servers from config
       DNS=$DNS1
       DNS=$DNS2
