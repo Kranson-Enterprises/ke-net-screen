@@ -14,7 +14,7 @@ mmdebstrap:
       install -d -m 0755 "$1/usr/local/sbin" "$1/usr/local/src/pihole-installer"
 
       # Add local copy of pi-hole installer script
-      cp -a "../vendors/pi-hole/automated install/basic-install.sh" "$1/usr/local/src/pihole-installer/" 2>/dev/null || true
+      cp -a "../ke-net-screen/vendors/pi-hole/automated install/basic-install.sh" "$1/usr/local/src/pihole-installer/" 2>/dev/null || true
       chmod +x "$1/usr/local/src/pihole-installer/basic-install.sh"
 
       # Create first-boot script to run pi-hole installer
