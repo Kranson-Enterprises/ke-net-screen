@@ -40,5 +40,16 @@ mmdebstrap:
       chmod 755 "$1/usr/local/bin/"*
       uchroot "$1" 'ln -s /usr/local/bin/ /home/$IGconf_device_user1/scripts'
       uchroot "$1" 'ln -s /usr/local/bin/unbound-readme.txt /home/$IGconf_device_user1/unbound-readme.txt'
+    - |
+      # Install SSH hardening policy from repository template.
+      REPO_ROOT=${SRCROOT:?SRCROOT is required}
+      SSH_LISTEN_ADDRESS=${IGconf_network_ipaddress:?IGconf_network_ipaddress is required}
+
+      install -d -m 0755 "$1/etc/ssh/sshd_config.d"
+      cp -a "$REPO_ROOT/etc/ssh/sshd_config.d/local_network_only.conf" "$1/etc/ssh/sshd_config.d/local_network_only.conf"
+      sed -i \
+        -e "s/IGconf_network_ipaddress/$SSH_LISTEN_ADDRESS/g" \
+        "$1/etc/ssh/sshd_config.d/local_network_only.conf"
+      chmod 0644 "$1/etc/ssh/sshd_config.d/local_network_only.conf"
   cleanup-hooks:
     - rm -rf $1/var/lib/apt/lists/* || true
