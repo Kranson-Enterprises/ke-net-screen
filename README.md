@@ -146,6 +146,9 @@ The `.gitmodules` file contains reference to the actual builder executables requ
 [submodule "rpi-image-gen"]
 	path = rpi-image-gen
 	url = https://github.com/raspberrypi/rpi-image-gen
+[submodule "vendors/pi-hole"]
+	path = vendors/pi-hole
+	url = https://github.com/pi-hole/pi-hole.git   
 ```
 
 Make the submodule code available to the current repository:
