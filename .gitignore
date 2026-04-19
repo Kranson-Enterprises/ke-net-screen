@@ -1,3 +1,4 @@
 *-build/
 ke-net-screen-build*
 .env
+.github/prompts/*
