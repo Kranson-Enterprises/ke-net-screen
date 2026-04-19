@@ -5,26 +5,13 @@
 # X-Env-Layer-Category: networking
 # X-Env-Layer-Requires: systemd-net-min
 # X-Env-VarRequires: IGconf_network_ipaddress
-# X-Env-VarRequires-Default: 192.168.0.72
 # X-Env-VarRequires: IGconf_network_ipnetmask
-# X-Env-VarRequires-Default: 24
-# X-Env-VarRequires-Description: Default IP address for the network configuration
 # X-Env-VarRequires: IGconf_network_netmask
-# X-Env-VarRequires-Default: 255.255.255.0
-# X-Env-VarRequires-Description: Default netmask for the network configuration
 # X-Env-VarRequires: IGconf_network_gateway
-# X-Env-VarRequires-Default: 192.168.0.1
-# X-Env-VarRequires-Description: Default gateway for the network configuration
 # X-Env-VarRequires: IGconf_network_dns0
-# X-Env-VarRequires-Default: 127.0.0.1
 # X-Env-VarRequires: IGconf_network_dns1
-# X-Env-VarRequires-Default: 75.76.160.3
 # X-Env-VarRequires: IGconf_network_dns2
-# X-Env-VarRequires-Default: 75.76.160.4
-# X-Env-VarRequires-Description: Default DNS server for the network configuration
 # X-Env-VarRequires: IGconf_network_domain
-# X-Env-VarRequires-Default: lan
-# X-Env-VarRequires-Description: Default domain name for the network configuration
 # METAEND
 mmdebstrap:
   suite: trixie

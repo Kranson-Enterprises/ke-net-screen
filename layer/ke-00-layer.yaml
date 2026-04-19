@@ -6,13 +6,12 @@
 # X-Env-Layer-Requires: systemd-net-min,ke-unbcfg,ke-piholecfg,ke-avhicfg
 #
 # X-Env-VarPrefix: ke
-# X-Env-VarPrefix-Desc: Prefix for all environment variables defined in this layer
 #
-# X-Env-VarRequires: HOME,IGconf_device_user1
-# X-Env-VarRequires-Valid: regex:^/.*,string,regex:^(unix|tcp)://.*
+# X-Env-VarRequires: IGconf_device_user1
+# X-Env-VarRequires-Valid: string
 #
 # X-Env-VarOptional: IGconf_device_user1pass,LOG_LEVEL
-# X-Env-VarOptional-Valid: string,debug,info,warn,error
+# X-Env-VarOptional-Valid: string,string
 # METAEND
 mmdebstrap:
   suite: trixie
