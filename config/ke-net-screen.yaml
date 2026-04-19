@@ -28,7 +28,7 @@ layer:
   ke: ke-00-layer
 
 ssh:
-  pubkey_user1: $(< ${HOME}/.ssh/id_ed25519.pub)
+  pubkey_user1: $SSH_PUBKEY_USER1
   pubkey_only: n
 
 ke:
