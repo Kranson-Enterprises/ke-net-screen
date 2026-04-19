@@ -39,6 +39,68 @@ check_dns_resolution() {
     fi
 }
 
+check_sysctl_min() {
+    local key=$1
+    local min_value=$2
+    local path="/proc/sys/${key//./\/}"
+
+    if [[ ! -r "$path" ]]; then
+        log_message "⚠ Unable to read kernel tunable $key at $path"
+        return 0
+    fi
+
+    local current
+    current=$(<"$path")
+    if [[ "$current" =~ ^[0-9]+$ ]] && (( current >= min_value )); then
+        log_message "✓ $key=$current (>= $min_value)"
+        return 0
+    fi
+
+    log_message "⚠ $key=$current (expected >= $min_value)"
+    return 0
+}
+
+check_cpu_governor() {
+    local total=0
+    local perf=0
+
+    for governor_file in /sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_governor; do
+        [[ -r "$governor_file" ]] || continue
+        total=$((total + 1))
+        if grep -q '^performance$' "$governor_file"; then
+            perf=$((perf + 1))
+        fi
+    done
+
+    if [[ $total -eq 0 ]]; then
+        log_message "ℹ CPU governor files unavailable on this platform"
+        return 0
+    fi
+
+    if [[ $perf -eq $total ]]; then
+        log_message "✓ CPU governors in performance mode ($perf/$total)"
+    else
+        log_message "⚠ CPU governors in performance mode ($perf/$total)"
+    fi
+}
+
+check_unbound_cache_stats() {
+    if ! command -v unbound-control >/dev/null 2>&1; then
+        log_message "ℹ unbound-control not found; skipping cache stats"
+        return 0
+    fi
+
+    local hits misses
+    hits=$(unbound-control stats_noreset 2>/dev/null | awk -F= '/^total\.cachehits=/{print $2; exit}')
+    misses=$(unbound-control stats_noreset 2>/dev/null | awk -F= '/^total\.cachemiss=/{print $2; exit}')
+
+    if [[ -n "$hits" && -n "$misses" ]]; then
+        log_message "ℹ Unbound cache stats: hits=$hits misses=$misses"
+    else
+        log_message "⚠ Unable to read Unbound cache stats"
+    fi
+}
+
 main() {
     local failures=0
 
@@ -53,6 +115,13 @@ main() {
     # Check DNS resolution
     check_dns_resolution "google.com" "127.0.0.1" || failures=$((failures + 1))
     check_dns_resolution "github.com" "127.0.0.1" || failures=$((failures + 1))
+
+    # Performance observability checks (informational)
+    check_sysctl_min "net.core.rmem_max" 33554432
+    check_sysctl_min "net.core.wmem_max" 33554432
+    check_sysctl_min "net.core.netdev_max_backlog" 4096
+    check_cpu_governor
+    check_unbound_cache_stats
     
     # Check local mDNS
     if ! command -v avahi-resolve-host-name >/dev/null 2>&1; then
