@@ -1,7 +1,7 @@
 # Pi-hole configuration file (v6.4.1)
 # Encoding: UTF-8
 # This file is managed by pihole-FTL
-# Last updated on 2025-11-29 09:22:39 EST
+# Last updated on 2026-04-04 14:43:30 EDT
 
 [dns]
   # Upstream DNS Servers to be used by Pi-hole. If this is not set, Pi-hole will not
@@ -349,6 +349,14 @@
     #     blocked queries
     upstreamBlockedTTL = 86400
 
+    # This is dnsmasq's --cache-rr option, which allows you to define which DNS record
+    # types should be cached by PiHole. This option can take a comma-separated list of
+    # RR-types as input. The default value ANY caches all record types.
+    #
+    # Allowed values are:
+    #     Valid DNS record types in the following form: <rrtype>[,<rrtype>...]
+    rrtype = "ANY"
+
   [dns.blocking]
     # Should FTL block queries?
     #
@@ -447,7 +455,7 @@
       #
       # Possible values are:
       #     <valid IPv4 address> or empty string ("")
-      IPv4 = "192.168.0.72" ### CHANGED, default = ""
+      IPv4 = "192.168.0.53" ### CHANGED, default = ""
 
       # Use a specific IPv6 address for the Pi-hole host? See description for the IPv4
       # variant above for further details.
@@ -649,10 +657,7 @@
   # Allowed values are:
   #     Array of static leases each one in the following form:
   #     "[<hwaddr>][,id:<client_id>|*][,set:<tag>][,tag:<tag>][,<ipaddr>][,<hostname>][,<lease_time>][,ignore]"
-  hosts = [
-    "14:2g:13:11:11:1,192.168.0.2,YOUR-NETWORK-HOSTNAME1,infinite",
-    "14:2g:13:11:11:2,192.168.0.3,YOUR-NETWORK-HOSTNAME2,infinite",
-  ] ### CHANGED, default = []
+  hosts = []
 
   [ntp.ipv4]
     # Should FTL act as network time protocol (NTP) server (IPv4)?
@@ -741,6 +746,20 @@
   #     true or false
   resolveIPv6 = false ### CHANGED, default = true
 
+  # Control whether FTL should attempt to obtain client names from the network table by
+  # MAC address.
+  #
+  #This can provide hostnames for devices that do not have a hostname or have multiple
+  # IP addresses (e.g. IPv4 and IPv6).
+  #However, MAC-derived names can be ambiguous (e.g., when a MAC appears for multiple
+  # IPs due to a router/NAT or MAC reuse), which may lead to incorrect hostnames being
+  # shown. Disabling this option can prevent such issues but may lead to more clients
+  # without hostnames.
+  #
+  # Allowed values are:
+  #     true or false
+  macNames = true
+
   # Control whether FTL should use the fallback option to try to obtain client names from
   # checking the network table. This behavior can be disabled with this option.
   #
@@ -808,6 +827,19 @@
   # Allowed values are:
   #     true or false
   useWAL = true
+
+  # Should FTL force the use of disk storage for the history database? By default, FTL
+  # uses an in-memory database for much improved performance when browsing the history
+  # from the dashboard. However, on systems with very limited RAM and only occasional
+  # usage of the web interface, it may be useful to force the use of disk storage
+  # instead of holding everything in memory.
+  #
+  # Note that using disk storage *will* reduce performance, especially on systems with
+  # slow storage media (e.g., SD cards).
+  #
+  # Allowed values are:
+  #     true or false
+  forceDisk = false
 
   [database.network]
     # Should FTL analyze the local ARP cache? When disabled, client identification and the
@@ -944,7 +976,7 @@
     "X-XSS-Protection: 0",
     "X-Content-Type-Options: nosniff",
     "Referrer-Policy: strict-origin-when-cross-origin"
-  ] ### CHANGED, default = [ "X-DNS-Prefetch-Control: off", "Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;", "X-Frame-Options: DENY", "X-XSS-Protection: 0", "X-Content-Type-Options: nosniff", "Referrer-Policy: strict-origin-when-cross-origin" ]
+  ] ### CHANGED, default = [ "X-DNS-Prefetch-Control: off", "Content-Security-Policy: default-src 'none'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; img-src 'self'; manifest-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; form-action 'self'", "X-Frame-Options: DENY", "X-XSS-Protection: 0", "X-Content-Type-Options: nosniff", "Referrer-Policy: strict-origin-when-cross-origin" ]
 
   # Should the web server serve all files in webserver.paths.webroot directory?
   #
@@ -1110,9 +1142,10 @@
     #     A valid Pi-hole password hash
     pwhash = "$BALLOON-SHA256$v=1$s=1024,t=32$DnpBGBzUUXtUBrcoeIeFOA==$BKkznhrmsWJ1Cod30bBF2BIGpOS9FZBhnMNr+E0r8sc=" ### CHANGED, default = ""
 
-    # Pi-hole 2FA TOTP secret. When set to something different than "", 2FA authentication
-    # will be enforced for the API and the web interface. This setting is write-only, you
-    # can not read the secret back.
+    # Pi-hole 2FA TOTP secret. When set to something different than an empty string, 2FA
+    # authentication will be enforced for the API and the web interface. This setting is
+    # write-only, the secret itself cannot be read back, but the CLI will show "********"
+    # to indicate that 2FA is configured.
     #
     # Allowed values are:
     #     A valid TOTP secret (20 Bytes in Base32 encoding)
@@ -1212,7 +1245,7 @@
     #
     # Allowed values are:
     #     true or false
-    allow_destructive = true
+    allow_destructive = false ### CHANGED, default = true
 
     [webserver.api.temp]
       # Which upper temperature limit should be used by Pi-hole? Temperatures above this
@@ -1245,6 +1278,13 @@
   # Allowed values are:
   #     Any FTL database
   database = "/etc/pihole/pihole-FTL.db"
+
+  # The location of FTL's short-term temporary database (only used when
+  # database.forceDisk is true)
+  #
+  # Allowed values are:
+  #     Any FTL database
+  tmp_db = "/etc/pihole/pihole-tmp.db"
 
   # The location of Pi-hole's gravity database
   #
@@ -1368,6 +1408,9 @@
   #
   # Use this option with extra care.
   #
+  # Example: [ "address=/example.com/192.168.0.1", "address=/example.org/192.168.0.2",
+  # "address=/example.net/192.168.0.3" ]
+  #
   # Allowed values are:
   #     Array of valid dnsmasq config line options
   dnsmasq_lines = []
@@ -1417,6 +1460,19 @@
   # Allowed values are:
   #     true or false
   hide_dnsmasq_warn = false
+
+  # Should FTL hide network connection errors?
+  #
+  # By default, FTL reports network connection errors (e.g., Connection prematurely
+  # closed by remote server) to the FTL log file. These warnings can be useful to
+  # identify intermittent network problems or general problem with upstream servers.
+  # However, in some setups, these warnings may be expected (e.g. due to low-quality
+  # Internet connectivity) and cannot be fixed. Enabling this setting will hide all
+  # connection warnings.
+  #
+  # Allowed values are:
+  #     true or false
+  hide_connection_error = false
 
   [misc.check]
     # Pi-hole is very lightweight on resources. Nevertheless, this does not mean that you
@@ -1673,6 +1729,5 @@
   all = false
 
 # Configuration statistics:
-# 162 total entries out of which 144 entries are default
-# --> 18 entries are modified
-
+# 167 total entries out of which 148 entries are default
+# --> 19 entries are modified
