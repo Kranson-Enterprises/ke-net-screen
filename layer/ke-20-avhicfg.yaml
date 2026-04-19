@@ -30,7 +30,7 @@ mmdebstrap:
     - |
       # Copy nsswitch from repository to keep one source of truth.
       REPO_ROOT=${SRCROOT:?SRCROOT is required}
-      cp -a "$REPO_ROOT/etc/nsswitch.conf" "$1/etc/nsswitch.conf" 2>/dev/null || true
+      cp -a "$REPO_ROOT/etc/nsswitch.conf" "$1/etc/nsswitch.conf"
     - |
       install -d -m 0755 "$1/etc/avahi/services"
       cat > "$1/etc/avahi/services/http.service" <<-EOSHTTP
