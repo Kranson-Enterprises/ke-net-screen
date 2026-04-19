@@ -126,21 +126,21 @@ fi
 # Tell user to insert the SD card and warn it will be erased
 # read -p "Insert the SD card before continuing...it will be erased!"
 
-# Show available devices
-echo "-------------------------------------------------------------------------"
-echo "Available devices:"
-lsblk -d -o NAME,SIZE,MODEL,TYPE | grep disk
-echo "-------------------------------------------------------------------------"
-echo "WARNING: All data on the selected device will be erased!"
-echo "Please ensure you have selected the correct device."
-echo "If you are unsure, please check the output of 'lsblk' above."
-echo "You can also use 'lsblk -f' to see the filesystem type and mount points."
-echo "If you are sure, please proceed with the next steps."
-echo "If you are not sure, please abort the script and check the device path."
-echo "-------------------------------------------------------------------------"
-echo ""
-
 if [[ $BUILD_ONLY -eq 0 ]]; then
+  # Show available devices only when flashing is requested.
+  echo "-------------------------------------------------------------------------"
+  echo "Available devices:"
+  lsblk -d -o NAME,SIZE,MODEL,TYPE | grep disk
+  echo "-------------------------------------------------------------------------"
+  echo "WARNING: All data on the selected device will be erased!"
+  echo "Please ensure you have selected the correct device."
+  echo "If you are unsure, please check the output of 'lsblk' above."
+  echo "You can also use 'lsblk -f' to see the filesystem type and mount points."
+  echo "If you are sure, please proceed with the next steps."
+  echo "If you are not sure, please abort the script and check the device path."
+  echo "-------------------------------------------------------------------------"
+  echo ""
+
   # Tell user to insert the SD card and warn it will be erased
   read -p "Insert the SD card before continuing...it will be erased!"
 

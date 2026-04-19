@@ -15,12 +15,13 @@ mmdebstrap:
   customize-hooks:
     - |
       # Copy Avahi config from repository (single source of truth) and apply placeholders.
+      REPO_ROOT=${SRCROOT:?SRCROOT is required}
       HOST=${IGconf_device_hostname:?IGconf_device_hostname is required}
       IP_ADDRESS=${IGconf_network_ipaddress:?IGconf_network_ipaddress is required}
       DOMAIN=${IGconf_network_domain:?IGconf_network_domain is required}
 
       install -d -m 0755 "$1/etc/avahi"
-      cp -a "../ke-net-screen/etc/avahi/avahi-daemon.conf" "$1/etc/avahi/" 2>/dev/null || true
+      cp -a "$REPO_ROOT/etc/avahi/avahi-daemon.conf" "$1/etc/avahi/" 2>/dev/null || true
       sed -i \
         -e "s/IGconf_device_hostname/$HOST/g" \
         -e "s/IGconf_network_ipaddress/$IP_ADDRESS/g" \
@@ -28,7 +29,8 @@ mmdebstrap:
         "$1/etc/avahi/avahi-daemon.conf"
     - |
       # Copy nsswitch from repository to keep one source of truth.
-      cp -a "../ke-net-screen/etc/nsswitch.conf" "$1/etc/nsswitch.conf" 2>/dev/null || true
+      REPO_ROOT=${SRCROOT:?SRCROOT is required}
+      cp -a "$REPO_ROOT/etc/nsswitch.conf" "$1/etc/nsswitch.conf" 2>/dev/null || true
     - |
       install -d -m 0755 "$1/etc/avahi/services"
       cat > "$1/etc/avahi/services/http.service" <<-EOSHTTP
@@ -44,8 +46,9 @@ mmdebstrap:
       EOSHTTP
     - |
       # Install DNS health checker and run it once after boot, then hourly.
+      REPO_ROOT=${SRCROOT:?SRCROOT is required}
       install -d -m 0755 "$1/usr/local/bin"
-      cp -a "../ke-net-screen/home/scripts/monitoring/dns-health-check.sh" "$1/usr/local/bin/dns-health-check.sh" 2>/dev/null || true
+      cp -a "$REPO_ROOT/home/scripts/monitoring/dns-health-check.sh" "$1/usr/local/bin/dns-health-check.sh" 2>/dev/null || true
       chmod 0755 "$1/usr/local/bin/dns-health-check.sh"
 
       install -d -m 0755 "$1/etc/systemd/system"

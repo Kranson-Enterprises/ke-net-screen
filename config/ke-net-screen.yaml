@@ -2,7 +2,7 @@ device:
   layer: rpi5
   user1: localadmin
   user1pass: $PIHOLE_PASSWORD
-  hostname: ke-localdns
+  hostname: localdns-ke
   keyboard_layout: us
   locale  : en_US.UTF-8
   timezone: America/Detroit
@@ -40,7 +40,7 @@ ke:
 network:
   interface: eth0
   use_dhcp: n
-  ipaddress: 192.168.0.72
+  ipaddress: 192.168.0.53
   ipnetmask: 24
   netmask: 255.255.255.0
   gateway: 192.168.0.1
