@@ -3,7 +3,7 @@
 # X-Env-Layer-Desc: Kranson Enterprise Layer description
 # X-Env-Layer-Version: 1.0.0
 # X-Env-Layer-Category: general
-# X-Env-Layer-Requires: systemd-net-min,ke-unbcfg,ke-unbcfg,ke-piholecfg,ke-avhicfg
+# X-Env-Layer-Requires: systemd-net-min,ke-unbcfg,ke-piholecfg,ke-avhicfg
 #
 # X-Env-VarPrefix: ke
 #
