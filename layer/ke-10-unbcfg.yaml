@@ -89,18 +89,80 @@ mmdebstrap:
           wait-limit: 2000
           ip-ratelimit: 0         
 
-          # Ensure privacy of local IP ranges
-          private-address: 192.168.0.0/16
-          private-address: 169.254.0.0/16
-          private-address: 172.16.0.0/12
-          private-address: 10.0.0.0/8
-          private-address: fd00::/8
-          private-address: fe80::/10
+            # Rebinding/privacy protection for local and special-use ranges
+            private-address: 10.0.0.0/8
+            private-address: 172.16.0.0/12
+            private-address: 192.168.0.0/16
+            private-address: 169.254.0.0/16
+            private-address: 100.64.0.0/10
+            private-address: 127.0.0.0/8
+            private-address: 198.18.0.0/15
+            private-address: 0.0.0.0/8
+            private-address: 255.255.255.255/32
 
-          # Ensure no reverse queries to non-public IP ranges (RFC6303 4.2)
-          private-address: 192.0.2.0/24
-          private-address: 198.51.100.0/24
-          private-address: 203.0.113.0/24
-          private-address: 255.255.255.255/32
-          private-address: 2001:db8::/32        
+            private-address: ::1/128
+            private-address: fc00::/7
+            private-address: fe80::/10
+            private-address: 2001:db8::/32
+
+            # Documentation ranges
+            private-address: 192.0.2.0/24
+            private-address: 198.51.100.0/24
+            private-address: 203.0.113.0/24
+
+            # RFC6303-style reverse leakage protection
+            local-zone: "10.in-addr.arpa." static
+            local-zone: "16.172.in-addr.arpa." static
+            local-zone: "17.172.in-addr.arpa." static
+            local-zone: "18.172.in-addr.arpa." static
+            local-zone: "19.172.in-addr.arpa." static
+            local-zone: "20.172.in-addr.arpa." static
+            local-zone: "21.172.in-addr.arpa." static
+            local-zone: "22.172.in-addr.arpa." static
+            local-zone: "23.172.in-addr.arpa." static
+            local-zone: "24.172.in-addr.arpa." static
+            local-zone: "25.172.in-addr.arpa." static
+            local-zone: "26.172.in-addr.arpa." static
+            local-zone: "27.172.in-addr.arpa." static
+            local-zone: "28.172.in-addr.arpa." static
+            local-zone: "29.172.in-addr.arpa." static
+            local-zone: "30.172.in-addr.arpa." static
+            local-zone: "31.172.in-addr.arpa." static
+            local-zone: "168.192.in-addr.arpa." static
+            local-zone: "254.169.in-addr.arpa." static
+            local-zone: "127.in-addr.arpa." static
+            local-zone: "64.100.in-addr.arpa." static
+            local-zone: "65.100.in-addr.arpa." static
+            local-zone: "66.100.in-addr.arpa." static
+            local-zone: "67.100.in-addr.arpa." static
+            local-zone: "68.100.in-addr.arpa." static
+            local-zone: "69.100.in-addr.arpa." static
+            local-zone: "70.100.in-addr.arpa." static
+            local-zone: "71.100.in-addr.arpa." static
+            local-zone: "18.198.in-addr.arpa." static
+            local-zone: "19.198.in-addr.arpa." static
+
+            local-zone: "0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa." static
+            local-zone: "8.e.f.ip6.arpa." static
+            local-zone: "9.e.f.ip6.arpa." static
+            local-zone: "a.e.f.ip6.arpa." static
+            local-zone: "b.e.f.ip6.arpa." static
+            local-zone: "c.e.f.ip6.arpa." static
+            local-zone: "d.e.f.ip6.arpa." static
+            local-zone: "0.c.f.ip6.arpa." static
+            local-zone: "1.c.f.ip6.arpa." static
+            local-zone: "2.c.f.ip6.arpa." static
+            local-zone: "3.c.f.ip6.arpa." static
+            local-zone: "4.c.f.ip6.arpa." static
+            local-zone: "5.c.f.ip6.arpa." static
+            local-zone: "6.c.f.ip6.arpa." static
+            local-zone: "7.c.f.ip6.arpa." static
+            local-zone: "8.c.f.ip6.arpa." static
+            local-zone: "9.c.f.ip6.arpa." static
+            local-zone: "a.c.f.ip6.arpa." static
+            local-zone: "b.c.f.ip6.arpa." static
+            local-zone: "c.c.f.ip6.arpa." static
+            local-zone: "d.c.f.ip6.arpa." static
+            local-zone: "e.c.f.ip6.arpa." static
+            local-zone: "f.c.f.ip6.arpa." static
       EOP
