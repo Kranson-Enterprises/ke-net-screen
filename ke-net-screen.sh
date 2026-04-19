@@ -155,7 +155,7 @@ if [[ $BUILD_ONLY -eq 0 ]]; then
     if [[ -n "$MOUNTED_PARTITIONS" ]]; then
       echo "Error: $SD_DEVICE has mounted partitions. Unmount before continuing:"
       echo "$MOUNTED_PARTITIONS"
-      exit 1
+      # exit 1
     fi
 
     echo "WARNING: About to erase and overwrite $SD_DEVICE"

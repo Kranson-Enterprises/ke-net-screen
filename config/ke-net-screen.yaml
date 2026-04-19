@@ -40,13 +40,13 @@ ke:
 network:
   interface: eth0
   use_dhcp: n
-  ipaddress: 192.168.0.53
+  ipaddress: 192.168.0.72
   ipnetmask: 24
   netmask: 255.255.255.0
   gateway: 192.168.0.1
   dns0: 127.0.0.1
-  dns1: 8.8.8.8
-  dns2: 9.9.9.9
+  dns1: 75.76.160.3
+  dns2: 75.76.160.4
   domain: lan
 
 splash:
