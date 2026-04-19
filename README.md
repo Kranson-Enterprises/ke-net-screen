@@ -329,15 +329,26 @@ The ./layer folder utilize META dependencies and variable expansion to feed the 
 
 **Build With Password**
 
-Now, this is important, to NOT have your history save the password value or the command line, you start with a space in the commandline:
+The `PIHOLE_PASSWORD` environment variable is required for the build. It can be set in two ways, with the following precedence (first match wins):
 
-`  PIHOLE_PASSWORD=Chang3M@! ./ke-net-screen.sh`
+1. **From `.env` file** (if present, takes highest precedence):
+   - The script automatically sources `.env` at startup if it exists.
+   - Set `PIHOLE_PASSWORD=YourPassword` in `.env`
+   - This method keeps sensitive values out of shell history.
 
-The .bashrc HISTIGNORE=ignoreboth is typically a default. It includes a rule that does not record to history any command line executed that starts with a space. You generally do not want the password available in history.
+2. **From command line** (if `.env` is not present or does not define `PIHOLE_PASSWORD`):
+   - To avoid saving the password to shell history, prefix the command with a space:
+   - `  PIHOLE_PASSWORD=Chang3M@! ./ke-net-screen.sh`
+   - The .bashrc `HISTIGNORE=ignoreboth` default rule excludes commands starting with a space from history.
 
-The PIHOLE_PASSWORD value must meet password complexity rules: lower, upper, number, special, min 8 chars. If it does not meet these minimums you get an error. This is built into the rpi-image-gen layers. `Chang3M@!` is an example only!
+**Password Requirements:**
+- Must meet complexity rules: one lowercase, one uppercase, one number, one special character, minimum 8 characters
+- If requirements are not met, the build will error
+- This validation is built into rpi-image-gen layers
+- `Chang3M@!` is an example only
+- This password will be the host login password after first boot
 
-This will be the host login password.
+**Recommendation:** For security, use the `.env` file approach rather than command line, and ensure `.env` is never committed to version control.
 
 **Build Success**
 

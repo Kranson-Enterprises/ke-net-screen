@@ -125,7 +125,7 @@ main() {
     
     # Check local mDNS
     if ! command -v avahi-resolve-host-name >/dev/null 2>&1; then
-        log_message "✗ avahi-resolve-host-name command not found"
+        log_message "✗ avahi-resolve-host-name command not found. Install avahi-utils if desired."
         failures=$((failures + 1))
     elif avahi-resolve-host-name "$(hostname).local" >/dev/null 2>&1; then
         log_message "✓ mDNS resolution working"
