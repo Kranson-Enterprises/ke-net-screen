@@ -20,8 +20,8 @@ Gateway=192.168.0.1
 # Primary: Localhost (Pi-hole on port 53)
 DNS=127.0.0.1
 # Fallback: WOW DNS servers
-DNS=75.76.160.3
-DNS=75.76.160.4
+DNS=8.8.8.8
+DNS=9.9.9.9
 
 # Disable IPv6 Router Advertisements
 IPv6AcceptRA=no
