@@ -17,7 +17,7 @@ mmdebstrap:
       install -d -m 0755 "/etc/avahi"
       
       # Set up network configuration based on environment variables
-      IP_ADDRESS=${IGconf_network_ipaddress:-192.168.0.72}
+      IP_ADDRESS=${IGconf_network_ipaddress:-192.168.0.53}
       DOMAIN=${IGconf_network_domain:-lan}
       HOST=${IGconf_device_hostname:-ke-localdns}
       

@@ -32,7 +32,7 @@ mmdebstrap:
       sleep 2
       systemctl reset-failed || true
       # Use environment variable for Pi-hole password instead of hardcoded
-      pihole setpassword ChangeMe || true
+      pihole setpassword Ch@ngeM3 || true
       python3 /usr/local/src/pihole/import_adlists.py || true
       pihole restartdns reload-lists || true
       pihole -g || true

@@ -24,7 +24,7 @@ mmdebstrap:
       install -d -m 0755 "$1/etc/systemd/resolved.conf.d/"
 
       # Set up network configuration based on environment variables
-      IP_ADDRESS=${IGconf_network_ipaddress:-192.168.0.72}
+      IP_ADDRESS=${IGconf_network_ipaddress:-192.168.0.53}
       NETMASK=${IGconf_network_ipnetmask:-24}
       GATEWAY=${IGconf_network_gateway:-192.168.0.1}
       DNS0=${IGconf_network_dns0:-127.0.0.1}

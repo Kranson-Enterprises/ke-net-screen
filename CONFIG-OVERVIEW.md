@@ -24,7 +24,7 @@ This configuration implements a comprehensive DNS infrastructure for local netwo
 ### Static IP Setup
 ```
 Interface: eth0
-IP: 192.168.0.72/24
+IP: 192.168.0.53/24
 Gateway: 192.168.0.1
 DNS: 127.0.0.1 (local), 8.8.8.8, 9.9.9.9 (fallback)
 ```
