@@ -15,24 +15,21 @@ locale:
 
 image:
   layer: image-rpios
-  boot_part_size: 300%
-  root_part_size: 200%
+  boot_part_size: 200%
+  root_part_size: 500%
+  # Partition sizes cause size increase to fill device, only needed on final prod deploy
+  # boot_part_size: 512M
+  # root_part_size: 115G
   name: deb13-arm64-splash
-# compression=zstd
-# Partition sizes cause size increase to fill device, only needed on final prod deploy
-# image_boot_part_size=512M
-# image_root_part_size=115G
-# FW_SIZE=512M
-# ROOT_SIZE=115G
 
 layer:
   base: trixie-minbase
   splash: rpi-splash-screen
-  ke: ke-net-screen
+  ke: ke-00-layer
 
-# ssh:
-#  pubkey_user1: $(< ${HOME}/.ssh/id_ed25519.pub)
-#  pubkey_only: n
+ssh:
+  pubkey_user1: $(< ${HOME}/.ssh/id_ed25519.pub)
+  pubkey_only: n
 
 ke:
   environment: development
