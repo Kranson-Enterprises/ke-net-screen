@@ -426,20 +426,35 @@ You can have more than one DNS server on your network. It typically will not bre
 
 #### Network Checks
 
-- sudo ip addr show eth0
-- ifconfig
-- ls /etc/network/interfaces && cat /etc/network/interfaces
-   - not present for pure systemd-resolved or netplan setup
-- ss -tunlp
-- cat /etc/nsswitch.conf
-- cat /etc/mdns.allow
-   - not present for pure systemd-resolved
-- cat /etc/resolv.conf
-   - is a link to /run/systemd/resolve/stub-resolv.conf in systemd-resolved setup
+**Quick command-line validation:**
 
-- vi /etc/dhcp/dhclient.conf
-   - Not present for pure systemd-resolved setup
-   - /etc/dhcp/dhclient-exit-hooks.d/timesyncd file present
+```bash
+sudo ip addr show eth0          # Verify static IP assignment and interface status
+ss -tunlp                       # Confirm listening ports (53 for DNS, SSH on 22, etc.)
+cat /etc/nsswitch.conf          # Verify name resolution order (mdns, resolve, files)
+grep -v '#' /run/systemd/resolve/stub-resolv.conf  # Check systemd-resolved stub listener
+resolvectl query example.com    # Test end-to-end resolution through the stack
+```
+
+**Configuration Architecture (Modern systemd-based design):**
+
+This image deliberately does NOT include legacy networking components:
+
+| File/Component | Status | Reason |
+|---|---|---|
+| `/etc/network/interfaces` | **Absent** | Uses systemd-networkd instead (declarative, service-based configuration) |
+| `/etc/dhcp/dhclient.conf` | **Absent** | Static IP configured in systemd-networkd (no DHCP client needed) |
+| `/etc/mdns.allow` | **Absent** | Uses NSS mDNS through libnss-mdns (modern, no separate service config) |
+| `/etc/resolv.conf` | **Link to `/run/systemd/resolve/stub-resolv.conf`** | systemd-resolved manages DNS stub listener (centralized, dynamic) |
+
+**Security and Best Practices:**
+
+- **No legacy ifupdown:** Removes obsolete networking stack and reduces attack surface
+- **systemd-resolved stub listener:** Centralized DNS interception at 127.0.0.53:53 (UNIX-only, no network exposure)
+- **Pi-hole as primary DNS:** Runs on port 53, receives all queries via systemd-resolved delegation
+- **Unbound as upstream resolver:** Isolated on port 5335, only accessible from Pi-hole (defense-in-depth)
+- **NSS mDNS order:** `hosts dns mdns resolve` ensures local Avahi service discovery before network lookups
+- **No embedded secrets:** Configuration uses environment variables, one-time boot secrets destroyed after use
 
 #### Network Lookup Checks
 
