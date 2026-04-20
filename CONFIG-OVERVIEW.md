@@ -31,9 +31,15 @@ DNS: 127.0.0.1 (local), 8.8.8.8, 9.9.9.9 (fallback)
 
 ### Security Considerations
 - SSH restricted to local network only
+- SSH allows password authentication but requires public-key authentication method in current policy
 - IPv6 disabled (not in use)
-- DNS-over-HTTPS disabled (using encrypted upstream)
+- DNS-over-HTTPS/DNS-over-TLS not used; recursive resolution handled by local Unbound
 - Rate limiting enabled for Avahi
+
+### DHCP Authority
+- DHCP is served by Pi-hole (`etc/pihole/pihole.toml`, `[dhcp] active = true`).
+- Router DHCP should be disabled during cutover to avoid lease and resolver conflicts.
+- Do not run router DHCP and Pi-hole DHCP at the same time.
 
 ## Maintenance Commands
 
@@ -47,6 +53,10 @@ systemctl restart systemd-resolved unbound pihole-FTL
 
 # Check DNS resolution
 dig @127.0.0.1 google.com
+
+# Check periodic health-check status
+systemctl status dns-health-check.timer dns-health-check.service
+journalctl -u dns-health-check.service -n 100 --no-pager
 ```
 
 ### Pi-hole Management
@@ -67,10 +77,22 @@ pihole networkflush
 unbound-checkconf
 
 # Monitor statistics
-unbound-control stats
+unbound-control stats_noreset
 
 # Flush cache
 unbound-control reload
+```
+
+### Performance Observability
+```bash
+# Verify kernel network buffers expected by DNS stack
+sysctl net.core.rmem_max net.core.wmem_max net.core.netdev_max_backlog
+
+# Review Unbound cache behavior
+unbound-control stats_noreset | grep -E 'total.cachehits|total.cachemiss'
+
+# Check CPU governor state
+grep -H . /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor 2>/dev/null
 ```
 
 ## Troubleshooting
@@ -80,6 +102,7 @@ unbound-control reload
 2. **Slow resolution**: Verify upstream DNS servers
 3. **Local domains not working**: Check Avahi configuration and mDNS setup
 4. **Pi-hole not blocking**: Update blocklists and check configuration
+5. **Intermittent client connectivity**: Ensure only one DHCP server is active (Pi-hole OR router)
 
 ### Log Locations
 - Pi-hole: `/var/log/pihole.log`
