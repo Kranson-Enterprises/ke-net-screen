@@ -26,6 +26,7 @@ mmdebstrap:
       USE_DHCP=${IGconf_network_use_dhcp:?IGconf_network_use_dhcp is required}
       IP_ADDRESS=${IGconf_network_ipaddress:?IGconf_network_ipaddress is required}
       NETMASK=${IGconf_network_ipnetmask:?IGconf_network_ipnetmask is required}
+      NETMASK_DOTTED=${IGconf_network_netmask:?IGconf_network_netmask is required}
       GATEWAY=${IGconf_network_gateway:?IGconf_network_gateway is required}
       DNS0=${IGconf_network_dns0:?IGconf_network_dns0 is required}
       DNS1=${IGconf_network_dns1:?IGconf_network_dns1 is required}
@@ -45,6 +46,33 @@ mmdebstrap:
         echo "Invalid NETMASK prefix: $NETMASK" >&2
         exit 1
       fi
+
+      IFS=. read -r MASK_OCTET1 MASK_OCTET2 MASK_OCTET3 MASK_OCTET4 <<-EOF
+      $NETMASK_DOTTED
+      EOF
+      for octet in "$MASK_OCTET1" "$MASK_OCTET2" "$MASK_OCTET3" "$MASK_OCTET4"; do
+        if ! echo "$octet" | grep -qE '^[0-9]+$' || [ "$octet" -lt 0 ] || [ "$octet" -gt 255 ]; then
+          echo "Invalid dotted netmask octet in IGconf_network_netmask: $NETMASK_DOTTED" >&2
+          exit 1
+        fi
+      done
+
+      MASK_DOTTED_INT=$(( (MASK_OCTET1 << 24) | (MASK_OCTET2 << 16) | (MASK_OCTET3 << 8) | MASK_OCTET4 ))
+      DERIVED_PREFIX=0
+      MASK_WORK=$MASK_DOTTED_INT
+      while [ $(( MASK_WORK & 0x80000000 )) -ne 0 ]; do
+        DERIVED_PREFIX=$((DERIVED_PREFIX + 1))
+        MASK_WORK=$(((MASK_WORK << 1) & 0xFFFFFFFF))
+      done
+      if [ "$MASK_WORK" -ne 0 ]; then
+        echo "Invalid non-contiguous dotted netmask: $NETMASK_DOTTED" >&2
+        exit 1
+      fi
+      if [ "$DERIVED_PREFIX" -ne "$NETMASK" ]; then
+        echo "Mismatched netmask values: IGconf_network_ipnetmask=$NETMASK, IGconf_network_netmask=$NETMASK_DOTTED" >&2
+        exit 1
+      fi
+
       IP_INT=$(( (IP_OCTET1 << 24) | (IP_OCTET2 << 16) | (IP_OCTET3 << 8) | IP_OCTET4 ))
       if [ "$NETMASK" -eq 0 ]; then
         MASK_INT=0
