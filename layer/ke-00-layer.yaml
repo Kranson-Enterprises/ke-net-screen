@@ -52,4 +52,4 @@ mmdebstrap:
         "$1/etc/ssh/sshd_config.d/local_network_only.conf"
       chmod 0644 "$1/etc/ssh/sshd_config.d/local_network_only.conf"
   cleanup-hooks:
-    - rm -rf $1/var/lib/apt/lists/* || true
+    - rm -rf "$1"/var/lib/apt/lists/* || true

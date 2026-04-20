@@ -12,8 +12,8 @@ mmdebstrap:
   customize-hooks:
     - |
       # Set locale to en_US.UTF-8
-      chroot $1 locale-gen en_US.UTF-8
-      chroot $1 update-locale LANG=en_US.UTF-8
+      chroot "$1" locale-gen en_US.UTF-8
+      chroot "$1" update-locale LANG=en_US.UTF-8
     - |
       # Tune the Kernel parameters for networking performance
       # Set swappiness to 10 instead of default 60
