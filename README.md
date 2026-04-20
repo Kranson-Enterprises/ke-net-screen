@@ -7,6 +7,51 @@ Success will be determined through validation and testing. Your user experiences
 
 You must review assigned values in defaults before building or deploying the resulting image. While efforts have been made to provide generic and friendly defaults, these defaults may not work in your network environment.
 
+## Workflow
+
+Use this sequence to reduce outage risk during deployment:
+
+1. Prepare and validate
+   - Confirm ISP modem/router admin access and credentials.
+   - Build and verify locally before changing network settings.
+   - Update project settings in config/ and .env for your target network.
+
+2. Create and boot target image
+   - Build image artifacts and write the SD card.
+   - Boot the new DNS host and verify services are healthy.
+
+3. Cut over router settings
+   - Back up current LAN/DHCP/DNS settings on the router first.
+   - Set router DNS to the new host IP.
+   - Disable router DHCP. In this project design, DHCP is served by the Pi-hole configuration on the new DNS host.
+   - Do not run router DHCP and Pi-hole DHCP at the same time. Dual DHCP servers can issue conflicting leases, gateways, and DNS settings, causing intermittent connectivity and name resolution failures.
+
+4. Reboot and confirm client registration
+   - Reboot router and selected clients in a stable order.
+   - Re-check DNS on clients and verify expected filtering behavior.
+
+5. Roll back quickly if needed
+   - Restore saved router DNS/LAN settings.
+   - Reboot router and clients to re-register leases/resolvers.
+
+```mermaid
+flowchart TD
+    A[Verify Router Access] --> B[Configure Project Values]
+    B --> C[Build and Validate Image]
+    C --> D[Boot New DNS Host]
+    D --> E{Services Healthy?}
+    E -- No --> C
+    E -- Yes --> F[Backup Router LAN and DNS Settings]
+    F --> G[Update Router DNS to New Host]
+    G --> H[Reboot Router and Clients]
+    H --> I{DNS Working End to End?}
+    I -- Yes --> J[Cutover Complete]
+    I -- No --> K[Restore Previous Router Settings]
+    K --> L[Reboot and Re-Validate]
+```
+
+**Be ready to use a wired connection to your ISP modem/router during cutover and rollback.**
+
 ## Description
 
 AdBlock and Privacy Stripped Recursive DNS Resolver image builder using rpi-image-gen, pi-hole, unbound. Additional configuration of Avahi-daemon for local services discovery such as screen cast, printers, other '.local' services.
@@ -305,8 +350,8 @@ image:
   name: deb13-arm64-splash
 # compression=zstd
 # Partition sizes cause size increase to fill device, only needed on final prod deploy build
-# image_boot_part_size=512M
-# image_root_part_size=115G
+# boot_part_size=512M
+# root_part_size=115G
 ```
 
 ### 5. Build
