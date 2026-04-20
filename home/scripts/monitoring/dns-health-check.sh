@@ -105,13 +105,13 @@ main() {
     local failures=0
 
     log_message "Starting DNS health check"
-    
+
     # Check critical services
     check_service "pihole-FTL" || failures=$((failures + 1))
     check_service "unbound" || failures=$((failures + 1))
     check_service "avahi-daemon" || failures=$((failures + 1))
     check_service "systemd-resolved" || failures=$((failures + 1))
-    
+
     # Check DNS resolution
     check_dns_resolution "google.com" "127.0.0.1" || failures=$((failures + 1))
     check_dns_resolution "github.com" "127.0.0.1" || failures=$((failures + 1))
@@ -122,7 +122,7 @@ main() {
     check_sysctl_min "net.core.netdev_max_backlog" 4096
     check_cpu_governor
     check_unbound_cache_stats
-    
+
     # Check local mDNS
     if ! command -v avahi-resolve-host-name >/dev/null 2>&1; then
         log_message "✗ avahi-resolve-host-name command not found. Install avahi-utils if desired."
@@ -133,7 +133,7 @@ main() {
         log_message "✗ mDNS resolution failed"
         failures=$((failures + 1))
     fi
-    
+
     if [[ $failures -eq 0 ]]; then
         log_message "DNS health check completed with no failures"
         return 0

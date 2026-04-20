@@ -44,7 +44,7 @@ mmdebstrap:
           <type>_http._tcp</type>
           <port>80</port>
         </service>
-      </service-group>    
+      </service-group>
       EOSHTTP
     - |
       # Install DNS health checker and run it once after boot, then hourly.

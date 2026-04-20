@@ -225,7 +225,7 @@ The `.gitmodules` file contains reference to the actual builder executables requ
 	url = https://github.com/raspberrypi/rpi-image-gen
 [submodule "vendors/pi-hole"]
 	path = vendors/pi-hole
-	url = https://github.com/pi-hole/pi-hole.git   
+	url = https://github.com/pi-hole/pi-hole.git
 ```
 
 Make the submodule code available to the current repository:
@@ -332,7 +332,7 @@ network:
   dns0: 127.0.0.1           # this is purposely 127.0.0.1 localhost for first-order.
   dns1: 8.8.8.8             # this is second order lookup.
   dns2: 9.9.9.9             # this is third order lookup.
-  domain: lan               # this is your local domain. 
+  domain: lan               # this is your local domain.
                             # Do not use 'local'!! It is reserved for Avahi-Daemon.
                             # It will be in /etc/networks for kernel lookups.
 ```
@@ -499,7 +499,7 @@ Notes:
 
 - grep -v '#' /run/systemd/resolve/stub-resolv.conf
 - grep -v '#' /run/systemd/resolve/resolv.conf
-- grep -v '#' /lib/systemd/resolv.conf 
+- grep -v '#' /lib/systemd/resolv.conf
 
 
 ### V2 RPI-IMAGE-GEN CLI

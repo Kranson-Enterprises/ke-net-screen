@@ -51,9 +51,9 @@ splash:
   # Leave empty or comment out to skip splash screen installation
   # Can be absolute or relative to the project root
   image_path: ke-splash.tga
-  
+
   # Skip image validation checks (not recommended for production)
   skip_image_checks: n
-  
+
   # Automatically update /boot/firmware/cmdline.txt to enable splash
   update_cmdline: y

@@ -9,7 +9,7 @@ This configuration implements a comprehensive DNS infrastructure for local netwo
 2. **Local/mDNS** → **Avahi** → **systemd-resolved** (stub disabled)
 
 ### Service Ports
-- Pi-hole FTL: 53 (DNS), 80 (Web Interface) 
+- Pi-hole FTL: 53 (DNS), 80 (Web Interface)
 - Unbound: 5335 (Recursive DNS)
 - Avahi: 5353 (mDNS)
 

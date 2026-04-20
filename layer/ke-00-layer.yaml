@@ -29,7 +29,7 @@ mmdebstrap:
     - path-exclude=/usr/share/help/*
     - path-exclude=/usr/share/gnome/help/*
     - path-exclude=/usr/share/lintian/*
-    - path-exclude=/usr/share/doc/linux-image-*/changelog*    
+    - path-exclude=/usr/share/doc/linux-image-*/changelog*
   customize-hooks:
     - |
       REPO_ROOT=${SRCROOT:?SRCROOT is required}

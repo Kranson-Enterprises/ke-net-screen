@@ -81,7 +81,7 @@ mmdebstrap:
       fi
       NETWORK_INT=$(( IP_INT & MASK_INT ))
       NETWORK_BASE=$(( (NETWORK_INT >> 24) & 255 )).$(( (NETWORK_INT >> 16) & 255 )).$(( (NETWORK_INT >> 8) & 255 )).$(( NETWORK_INT & 255 ))
-      
+
       # Create systemd network configuration
       install -d "$1/etc/systemd/network"
       cat > "$1/etc/systemd/network/01-$INTERFACE.network" <<-EOF

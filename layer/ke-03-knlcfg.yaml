@@ -8,7 +8,7 @@ mmdebstrap:
   suite: trixie
   variant: minbase
   packages:
-      - locales    
+      - locales
   customize-hooks:
     - |
       # Set locale to en_US.UTF-8
