@@ -5,6 +5,8 @@ Raspberry Pi 5 Image Builder for Home DNS
 
 Success will be determined through validation and testing. Your user experiences may change. You may need to learn new habits of clicking and browsing to mitigate blocked connections. Search results for example may need further scanning to get to a direct link instead of one parlayed through an advertiser!
 
+If this project saves you time or helps your network setup, you can support ongoing maintenance through the GitHub Sponsors button for this repository.
+
 You must review assigned values in defaults before building or deploying the resulting image. While efforts have been made to provide generic and friendly defaults, these defaults may not work in your network environment.
 
 ## Workflow
