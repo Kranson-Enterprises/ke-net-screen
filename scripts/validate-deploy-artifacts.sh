@@ -1,7 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./common.sh
+source "$SCRIPT_DIR/common.sh"
+
+ROOT_DIR="$(get_repo_root "${BASH_SOURCE[0]}")"
 DEPLOY_DIR_GLOB="$ROOT_DIR/ke-net-screen-build/deploy-*"
 
 if [[ $# -gt 1 ]]; then
@@ -9,11 +13,7 @@ if [[ $# -gt 1 ]]; then
   exit 1
 fi
 
-if [[ $# -eq 1 ]]; then
-  DEPLOY_DIR="$1"
-else
-  DEPLOY_DIR="$(ls -1dt $DEPLOY_DIR_GLOB 2>/dev/null | head -n1 || true)"
-fi
+DEPLOY_DIR="$(resolve_deploy_dir "$ROOT_DIR" "${1:-}")"
 
 if [[ -z "${DEPLOY_DIR:-}" || ! -d "$DEPLOY_DIR" ]]; then
   echo "[fail] no deploy directory found"
@@ -23,6 +23,7 @@ fi
 
 echo "[check] deploy directory: $DEPLOY_DIR"
 
+# Validate presence of core metadata emitted by the build pipeline.
 required_files=(
   deployed.json
   config.yaml.zst

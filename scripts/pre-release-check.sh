@@ -12,6 +12,7 @@ bash -n ke-net-screen.sh
 echo "[check] bash syntax: dns-health-check.sh"
 bash -n home/scripts/monitoring/dns-health-check.sh
 
+# Prevent shipping with an accidental hardcoded default password.
 echo "[check] hardcoded Pi-hole password"
 if grep -R --line-number "pihole setpassword Ch@ngeM3" layer; then
   echo "[fail] hardcoded Pi-hole password found"
@@ -21,6 +22,7 @@ fi
 echo "[check] env template contract"
 grep -q '^PIHOLE_PASSWORD=' .env.example
 
+# Validate SSH policy baseline expected by this project.
 echo "[check] ssh hardening policy baseline"
 SSH_POLICY_FILE="etc/ssh/sshd_config.d/local_network_only.conf"
 grep -q '^AddressFamily inet$' "$SSH_POLICY_FILE"
@@ -32,11 +34,13 @@ grep -q '^ChallengeResponseAuthentication no$' "$SSH_POLICY_FILE"
 grep -q '^PubkeyAuthentication yes$' "$SSH_POLICY_FILE"
 grep -q '^AuthenticationMethods publickey$' "$SSH_POLICY_FILE"
 
+# Ensure layer wiring includes the hardened SSH drop-in.
 echo "[check] ssh hardening policy is wired into active layer"
 grep -q 'local_network_only.conf' layer/ke-00-layer.yaml
 
 LATEST_RENDERED_SSH_POLICY="$(ls -1dt ke-net-screen-build/chroot-*/filesystem/etc/ssh/sshd_config.d/local_network_only.conf 2>/dev/null | head -n1 || true)"
 if [[ -n "$LATEST_RENDERED_SSH_POLICY" ]]; then
+  # Rendered policy should have all template placeholders resolved.
   echo "[check] rendered ssh policy placeholders"
   if grep -q 'IGconf_' "$LATEST_RENDERED_SSH_POLICY"; then
     echo "[fail] unresolved placeholder found in rendered ssh policy: $LATEST_RENDERED_SSH_POLICY"
@@ -44,6 +48,7 @@ if [[ -n "$LATEST_RENDERED_SSH_POLICY" ]]; then
   fi
 fi
 
+# Run the same host prerequisite gate used by the main build script.
 echo "[check] preflight"
 if [[ -n "${PIHOLE_PASSWORD:-}" ]]; then
   ./ke-net-screen.sh --preflight
