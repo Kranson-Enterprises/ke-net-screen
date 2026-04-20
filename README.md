@@ -61,6 +61,14 @@ AdBlock and Privacy Stripped Recursive DNS Resolver image builder using rpi-imag
 **Repository:** devopsbob/ke-net-screen
 **Purpose:** Custom Raspberry Pi image builder combining rpi-image-gen with Pi-hole, Unbound, and Avahi-daemon for a local DNS and media server.
 
+The MIT license in this repository applies to the original ke-net-screen code and documentation; bundled submodules and other third-party components remain under their own licenses.
+
+### Third-Party Components
+
+- `rpi-image-gen`: Included as a git submodule and licensed separately by Raspberry Pi. See `rpi-image-gen/LICENSE`.
+- `pi-hole`: Included as a git submodule under `vendors/pi-hole` and licensed separately by Pi-hole, LLC. See `vendors/pi-hole/LICENSE`.
+- `unbound`: Referenced as a git submodule in `.gitmodules` and licensed separately by NLnet Labs. See the upstream `NLnetLabs/unbound` repository license when that submodule is initialized locally.
+
 ## Table of Contents
 - [Overview](#overview)
 - [Hardware Requirements](#hardware-requirements)
