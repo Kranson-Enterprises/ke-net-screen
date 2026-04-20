@@ -2,7 +2,7 @@ device:
   layer: rpi5
   user1: localadmin
   user1pass: $PIHOLE_PASSWORD
-  hostname: localdns-ke
+  hostname: ke-localdns
   keyboard_layout: us
   locale  : en_US.UTF-8
   timezone: America/Detroit
@@ -15,11 +15,8 @@ locale:
 
 image:
   layer: image-rpios
-  # boot_part_size: 200%
-  # root_part_size: 500%
-  # Partition sizes cause size increase to fill device, only needed on final prod deploy
-  boot_part_size: 512M
-  root_part_size: 115G
+  boot_part_size: $IMAGE_BOOT_PART_SIZE
+  root_part_size: $IMAGE_ROOT_PART_SIZE
   name: deb13-arm64-splash
 
 layer:
@@ -38,16 +35,16 @@ ke:
   component: frontend
 
 network:
-  interface: eth0
-  use_dhcp: n
-  ipaddress: 192.168.0.53
-  ipnetmask: 24
-  netmask: 255.255.255.0
-  gateway: 192.168.0.1
-  dns0: 127.0.0.1
-  dns1: 75.76.160.3
-  dns2: 75.76.160.4
-  domain: lan
+  interface: $NETWORK_INTERFACE
+  use_dhcp: $NETWORK_USE_DHCP
+  ipaddress: $NETWORK_IPADDRESS
+  ipnetmask: $NETWORK_IPNETMASK
+  netmask: $NETWORK_NETMASK
+  gateway: $NETWORK_GATEWAY
+  dns0: $NETWORK_DNS0
+  dns1: $NETWORK_DNS1
+  dns2: $NETWORK_DNS2
+  domain: $NETWORK_DOMAIN
 
 splash:
   # Path to your custom splash screen image (24-bit TGA, max 1920x1080, <224 colours)
