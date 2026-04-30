@@ -15,6 +15,7 @@ DEFAULT_SD_DEVICE="/dev/mmcblk0"
 ENV_FILE="$PROJECT_ROOT/.env"
 BUILD_ONLY=0
 PREFLIGHT_ONLY=0
+UNBOUND_SOURCE=0
 MIN_FREE_MB=12288
 
 resolve_build_user_pubkey() {
@@ -55,9 +56,12 @@ usage() {
 Usage: ./ke-net-screen.sh [option]
 
 Options:
-  --preflight   Run prerequisite checks only and exit.
-  --build-only  Build image artifacts without writing to an SD card.
-  --help        Show this help text.
+  --preflight       Run prerequisite checks only and exit.
+  --build-only      Build image artifacts without writing to an SD card.
+  --source-unbound  Build Unbound from source (vendors/unbound) before
+                    assembling the image.  Requires the vendors/unbound
+                    submodule and libssl-dev + libexpat1-dev.
+  --help            Show this help text.
 EOF
 }
 
@@ -69,6 +73,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --build-only)
       BUILD_ONLY=1
+      shift
+      ;;
+    --source-unbound)
+      UNBOUND_SOURCE=1
       shift
       ;;
     --help|-h)
@@ -271,6 +279,14 @@ fi
 rm -Rf "$OUTDIR" 2>/dev/null || sudo rm -Rf "$OUTDIR"
 mkdir -p "$OUTDIR"
 
+if [[ $UNBOUND_SOURCE -eq 1 ]]; then
+  echo "[unbound-source] Building Unbound from source before image assembly..."
+  bash "$SCRIPT_DIR/scripts/build-unbound.sh" "$OUTDIR"
+  echo "[unbound-source] Source build complete."
+else
+  echo "[unbound-source] Source mode disabled; image will use package-managed unbound (default)."
+fi
+
 # skip invoking syft
 export IGconf_sbom_enable=n
 # apt_cachedir="$SCRIPT_DIR/apt-cache"
@@ -281,6 +297,17 @@ export IGconf_sbom_enable=n
 sleep 2
 
 cd "$PROJECT_ROOT"
+
+# Validate source-built Unbound presence in the rootfs when source mode was used.
+if [[ $UNBOUND_SOURCE -eq 1 ]]; then
+  ROOTFS_UNBOUND="$(find "$OUTDIR" -path "*/filesystem/usr/sbin/unbound" -type f 2>/dev/null | head -1)"
+  if [[ -z "$ROOTFS_UNBOUND" ]]; then
+    echo "ERROR: --source-unbound was set but unbound was not found in the image rootfs." >&2
+    echo "       Check ke-08-unbsrccfg hook output in the build log." >&2
+    exit 1
+  fi
+  echo "[unbound-source] Verified: source-built unbound present in rootfs at $ROOTFS_UNBOUND"
+fi
 
 # sudo rpi-imager --cli "$OUTDIR/image-deb13-arm64-splash/deb13-arm64-splash.img" /dev/mmcblk0
 

@@ -150,6 +150,71 @@ Build-only output is written under the generated build directory (for example: `
 If you run the default mode and provide a missing/nonexistent device path, the script automatically falls back to build-only and skips flashing.
 The `PIHOLE_PASSWORD` value is embedded into a one-time secret file on the boot partition during image build, applied on first boot, and then deleted by the first-boot setup script.
 
+### Source-Built Unbound Mode
+
+By default, the image uses package-managed Unbound behavior.
+
+Enable source-built Unbound explicitly:
+
+```bash
+./ke-net-screen.sh --source-unbound --build-only
+```
+
+Optional: validate your runtime Unbound config against the staged source binary during build:
+
+```bash
+./scripts/build-unbound.sh ./ke-net-screen-build --with-pihole-conf-check
+```
+
+#### Success Criteria
+
+When source mode is enabled, all of the following should be true:
+
+1. Build log shows source mode execution:
+   - `[unbound-source] Building Unbound from source before image assembly...`
+2. Build log confirms rootfs inclusion:
+   - `[unbound-source] Verified: source-built unbound present in rootfs ...`
+3. Rootfs contains source-built binaries and library:
+
+```bash
+./scripts/check-unbound-build.sh ./ke-net-screen-build
+```
+
+Expected checker summary:
+- `RESULT: ... 0 failed ...`
+
+#### Fallback Behavior Meaning
+
+Layer `ke-unbsrccfg` installs source-built artifacts only when they exist under build staging.
+If artifacts are absent, it logs an informational fallback and leaves package-managed Unbound in place.
+
+Fallback message:
+- `INFO: ke-unbsrccfg: no source-built Unbound artifacts detected ...; falling back to package-managed unbound`
+
+This fallback is intentional for safe default behavior and non-source builds.
+
+#### Troubleshooting
+
+1. Source build did not run.
+   - Confirm you passed `--source-unbound`.
+   - Confirm submodule exists: `git submodule status vendors/unbound`.
+
+2. Source artifacts not discovered by layer.
+   - Verify staged binary path exists:
+     - `ke-net-screen-build/build/staging/<gnu-type>/usr/sbin/unbound`
+   - Re-run source build:
+     - `./scripts/build-unbound.sh ./ke-net-screen-build`
+
+3. Config/module mismatch during staged config validation.
+   - Re-run with config check:
+     - `./scripts/build-unbound.sh ./ke-net-screen-build --with-pihole-conf-check`
+   - If `unbound-checkconf` fails, adjust `etc/unbound/unbound.conf.d/pi-hole.conf` or build options.
+
+4. Rootfs validation fails after source mode build.
+   - Re-run:
+     - `./scripts/check-unbound-build.sh ./ke-net-screen-build`
+   - Inspect `ke-unbsrccfg` hook output in build logs for copy-stage messages.
+
 ### Post-Boot Acceptance Checks
 
 After first boot, validate service readiness:

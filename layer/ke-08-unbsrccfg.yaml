@@ -51,6 +51,9 @@ mmdebstrap:
       if [ -x "$STAGING_USR/sbin/unbound-host" ]; then
         cp -a "$STAGING_USR/sbin/unbound-host" "$1/usr/sbin/"
       fi
+      if [ -x "$STAGING_USR/sbin/unbound-control-setup" ]; then
+        cp -a "$STAGING_USR/sbin/unbound-control-setup" "$1/usr/sbin/"
+      fi
 
       if [ -d "$STAGING_USR/lib" ]; then
         cp -a "$STAGING_USR/lib/libunbound"*.so* "$1/usr/lib/" 2>/dev/null || true

@@ -1,4 +1,6 @@
 *-build/
 ke-net-screen-build*
 .env
+.env.production
+.unbound-build/
 .github/prompts/*
