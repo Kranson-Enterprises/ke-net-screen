@@ -62,6 +62,7 @@ mmdebstrap:
       pihole restartdns reload-lists || true
       pihole -g || true
       pihole networkflush || true
+      systemctl restart ssh
       EOS
       chmod +x "$1/usr/local/sbin/run-pihole-firstboot.sh"
 
