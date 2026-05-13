@@ -52,6 +52,14 @@ mmdebstrap:
         sed -i '/8\.8\.8\.8/d; /9\.9\.9\.9/d' "$1/etc/systemd/resolved.conf"
       fi
     - |
+      # Mask unbound-resolvconf.service: systemd-resolved DNS is already
+      # configured explicitly via resolved.conf.d/unbound.conf.  The
+      # resolvconf helper tries to register unbound on the loopback interface
+      # (lo), which systemd-resolved rejects with "Link lo is loopback
+      # device", causing unbound.service to be marked failed via PartOf=.
+      install -d -m 0755 "$1/etc/systemd/system/"
+      ln -sf /dev/null "$1/etc/systemd/system/unbound-resolvconf.service"
+    - |
       # Install Unbound config from repository as single source of truth.
       REPO_ROOT=${SRCROOT:?SRCROOT is required}
       install -d -m 0755 "$1/etc/unbound/unbound.conf.d/"
