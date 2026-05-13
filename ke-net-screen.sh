@@ -287,12 +287,12 @@ else
   echo "[unbound-source] Source mode disabled; image will use package-managed unbound (default)."
 fi
 
-# skip invoking syft
-export IGconf_sbom_enable=n
 # apt_cachedir="$SCRIPT_DIR/apt-cache"
 # mkdir -p "$apt_cachedir"
 # Execute with the options file
 ./rpi-image-gen build -S "$SCRIPT_DIR" -c "$LAYER_CONFIG" -B "$OUTDIR"
+# skip invoking syft
+# ./rpi-image-gen build -S "$SCRIPT_DIR" -c "$LAYER_CONFIG" -B "$OUTDIR" -- IGconf_sbom_enable=n
 
 sleep 2
 
@@ -300,7 +300,11 @@ cd "$PROJECT_ROOT"
 
 # Validate source-built Unbound presence in the rootfs when source mode was used.
 if [[ $UNBOUND_SOURCE -eq 1 ]]; then
-  ROOTFS_UNBOUND="$(find "$OUTDIR" -path "*/filesystem/usr/sbin/unbound" -type f 2>/dev/null | head -1)"
+  shopt -s nullglob
+  unbound_candidates=("$OUTDIR"/chroot-*/filesystem/usr/sbin/unbound)
+  shopt -u nullglob
+
+  ROOTFS_UNBOUND="${unbound_candidates[0]:-}"
   if [[ -z "$ROOTFS_UNBOUND" ]]; then
     echo "ERROR: --source-unbound was set but unbound was not found in the image rootfs." >&2
     echo "       Check ke-08-unbsrccfg hook output in the build log." >&2
