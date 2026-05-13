@@ -280,8 +280,8 @@ rm -Rf "$OUTDIR" 2>/dev/null || sudo rm -Rf "$OUTDIR"
 mkdir -p "$OUTDIR"
 
 if [[ $UNBOUND_SOURCE -eq 1 ]]; then
-  echo "[unbound-source] Building Unbound from source before image assembly..."
-  bash "$SCRIPT_DIR/scripts/build-unbound.sh" "$OUTDIR"
+  echo "[unbound-source] Building Unbound from source before image assembly...--with-pihole-conf-check"
+  bash "$SCRIPT_DIR/scripts/build-unbound.sh" "$OUTDIR" --with-pihole-conf-check
   echo "[unbound-source] Source build complete."
 else
   echo "[unbound-source] Source mode disabled; image will use package-managed unbound (default)."
