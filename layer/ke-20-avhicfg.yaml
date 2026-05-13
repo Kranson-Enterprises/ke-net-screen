@@ -74,7 +74,7 @@ mmdebstrap:
 
       [Timer]
       OnBootSec=2min
-      OnUnitActiveSec=1h
+      OnUnitActiveSec=23h
       Persistent=true
 
       [Install]
