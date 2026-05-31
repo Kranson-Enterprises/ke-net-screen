@@ -93,6 +93,7 @@ mmdebstrap:
       Name=$INTERFACE
 
       [Network]
+      Name=$INTERFACE
       DHCP=$DHCP_MODE
 
       EOF
@@ -108,9 +109,12 @@ mmdebstrap:
 
       # DNS servers
       # Primary: Localhost (Pi-hole on port 53)
-      # DNS=$DNS0 let systemd-resolved own global DNS
+      DNS=$DNS0 
+      # Comment out above to let systemd-resolved own global DNS
+      # Forcing here to enable further unbound checkings
       # Fallback: additional DNS servers from config
       DNS=$DNS1
+      # Only two are supported, three can be shown but will cause warning
       DNS=$DNS2
       EOF
       fi
