@@ -173,7 +173,8 @@ if [[ $reconfigure -eq 1 ]]; then
     --with-libexpat=/usr \
     --with-chroot-dir="" \
     --without-pythonmodule \
-    --without-dynlibmodule
+    --without-dynlibmodule \
+    --enable-systemd
   printf '%s' "$CONF_SRC_HASH" > "$CONF_MARKER"
 fi
 
