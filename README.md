@@ -1,4 +1,5 @@
 # ke-net-screen
+
 Raspberry Pi 5 Image Builder for Home DNS
 
 **NOTICE:** These instructions eventually affect your network configuration and connections. You are responsible. You may need to reset or reboot your Internet Service Provider (ISP) modem or contact ISP support to regain proper access if all goes wrong. While fixable, a certain level of patience and required planning are necessary to properly reconfigure your network. This repository was made simple over the course of multiple weekends of network up-and-down exercises.
@@ -70,18 +71,18 @@ The MIT license in this repository applies to the original ke-net-screen code an
 - `unbound`: Referenced as a git submodule in `.gitmodules` and licensed separately by NLnet Labs. See the upstream `NLnetLabs/unbound` repository license when that submodule is initialized locally.
 
 ## Table of Contents
+
+- [Workflow](#workflow)
+- [Description](#description)
 - [Overview](#overview)
 - [Hardware Requirements](#hardware-requirements)
 - [Quick Start](#quick-start)
 - [Initial Setup](#initial-setup)
-- [Build Workflow](#build-workflow)
-- [Configuration](#configuration)
-- [Verification and Testing](#verification-and-testing)
-- [References](#references)
 
 ## Overview
 
 ### Project Goals
+
 - Create reproducible Raspberry Pi 5 images with Pi-hole and Unbound
 - Implement DNS hardening and privacy features
 - Configure systemd-resolved networking
@@ -89,6 +90,7 @@ The MIT license in this repository applies to the original ke-net-screen code an
 - Provide comprehensive verification procedures
 
 ### Network Configuration
+
 - Primary DNS: 127.0.0.1 (Pi-hole on port 53)
 - Upstream DNS: Unbound on port 5335 resolving to public DNS
 - Network Management: systemd-resolved
@@ -107,6 +109,7 @@ The access points will be used during the build and deployment. At this point yo
 ## Hardware Requirements
 
 ### Required Components
+
 1. Raspberry Pi 5 Starter Kit
 2. USB 3.0 64GB USB stick (build host)
 3. MicroSD card (target deployment, comes with kit)
@@ -181,6 +184,7 @@ When source mode is enabled, all of the following should be true:
 ```
 
 Expected checker summary:
+
 - `RESULT: ... 0 failed ...`
 
 #### Fallback Behavior Meaning
@@ -189,6 +193,7 @@ Layer `ke-unbsrccfg` installs source-built artifacts only when they exist under 
 If artifacts are absent, it logs an informational fallback and leaves package-managed Unbound in place.
 
 Fallback message:
+
 - `INFO: ke-unbsrccfg: no source-built Unbound artifacts detected ...; falling back to package-managed unbound`
 
 This fallback is intentional for safe default behavior and non-source builds.
@@ -275,7 +280,7 @@ This repository is intended to be hosted on the target hardware for the resultin
 4. Go to VSCode
    1. CTL-SHIFT-P for Extension action
    2. Remote-SSH: Connect Current Window to Host
-   3. Configure new host, use `username@ip.address` (localadmin@192.xx.xx.xx)
+   3. Configure new host, use `username@ip.address` (<localadmin@192.xx.xx.xx>)
    4. Connect and authenticate using username password
 5. Clone and manage repository on remote host
 
@@ -296,16 +301,16 @@ The `.gitmodules` file contains reference to the actual builder executables requ
 ```bash
 # .gitmodules
 [submodule "rpi-image-gen"]
-	path = rpi-image-gen
-	url = https://github.com/raspberrypi/rpi-image-gen
+ path = rpi-image-gen
+ url = https://github.com/raspberrypi/rpi-image-gen
 [submodule "vendors/pi-hole"]
-	path = vendors/pi-hole
-	url = https://github.com/pi-hole/pi-hole.git
+ path = vendors/pi-hole
+ url = https://github.com/pi-hole/pi-hole.git
 ```
 
 Make the submodule code available to the current repository:
 
-```
+```bash
 git submodule init
 git submodule update
 cd rpi-image-gen
@@ -338,25 +343,26 @@ git submodule add https://github.com/your-github-id/rpi-image-gen.git rpi-image-
 
 When you clone a repository that contains submodules, the submodule directories will be present but empty. To initialize and update the submodules, run the following commands:
 
-**Initialize the submodule configuration**
+##### Initialize the submodule configuration
 
 git submodule init
 
-**Update the submodules to fetch the data and check out the appropriate commit**
+##### Update the submodules to fetch the data and check out the appropriate commit
 
 git submodule update
 
 Alternatively, you can use the --recurse-submodules option with the git clone command to automatically initialize and update the submodules during the cloning process:
 
-**Clone the repository and initialize and update submodules**
+##### Clone the repository and initialize and update submodules
 
 git clone --recurse-submodules <repository_url>
 
-**Updating Submodules**
+##### Updating Submodules
 
 To update an existing submodule to the latest commit from the remote repository, use the git submodule update command with the --remote and --merge options:
 
-**Update the submodule to the latest commit and merge changes**
+##### Update the submodule to the latest commit and merge changes
+
 git submodule update --remote --merge
 
 ### 4. Configure
@@ -381,11 +387,11 @@ Below is simply an example. Your network may be 192.168.1, 10.x, or 172.x. These
       - Checked on/Enabled
       - Start IP: 192.168.0.2
       - End IP  : 192.168.0.254
-      - Domain Name: <blank>
+      - Domain Name: empty
       - This will be turned OFF once the DNS Host is in place
    - DNS Override
       - Enable DNS Override
-         - Uncheck/clear. No Custom DNS Configuration
+         - Uncheck/clear. No custom DNS configuration
       - Current Assigned examples:
          - DNS: 8.8.8.8 9.9.9.9
 
@@ -447,7 +453,7 @@ The ./layer folder utilize META dependencies and variable expansion to feed the 
 ./layer/ke-20-avhicfg    # Install and secure hardening of mDNS/AppleTalk/Avahi-daemon
 ```
 
-**Build With Password**
+#### Build With Password
 
 The `PIHOLE_PASSWORD` environment variable is required for the build. It can be set in two ways, with the following precedence (first match wins):
 
@@ -458,10 +464,11 @@ The `PIHOLE_PASSWORD` environment variable is required for the build. It can be 
 
 2. **From command line** (if `.env` is not present or does not define `PIHOLE_PASSWORD`):
    - To avoid saving the password to shell history, prefix the command with a space:
-   - `  PIHOLE_PASSWORD=Chang3M@! ./ke-net-screen.sh`
+   - `PIHOLE_PASSWORD=Chang3M@! ./ke-net-screen.sh`
    - The .bashrc `HISTIGNORE=ignoreboth` default rule excludes commands starting with a space from history.
 
 **Password Requirements:**
+
 - Must meet complexity rules: one lowercase, one uppercase, one number, one special character, minimum 8 characters
 - If requirements are not met, the build will error
 - This validation is built into rpi-image-gen layers
@@ -470,7 +477,7 @@ The `PIHOLE_PASSWORD` environment variable is required for the build. It can be 
 
 **Recommendation:** For security, use the `.env` file approach rather than command line, and ensure `.env` is never committed to version control.
 
-**Build Success**
+#### Build Success
 
 Once completed you will see:
 
@@ -516,7 +523,7 @@ resolvectl query example.com    # Test end-to-end resolution through the stack
 This image deliberately does NOT include legacy networking components:
 
 | File/Component | Status | Reason |
-|---|---|---|
+| --- | --- | --- |
 | `/etc/network/interfaces` | **Absent** | Uses systemd-networkd instead (declarative, service-based configuration) |
 | `/etc/dhcp/dhclient.conf` | **Absent** | Static IP configured in systemd-networkd (no DHCP client needed) |
 | `/etc/mdns.allow` | **Absent** | Uses NSS mDNS through libnss-mdns (modern, no separate service config) |
@@ -570,12 +577,12 @@ Follow these steps to build the image on the USB host, write it to the SD card, 
    - Inspect boot logs: `journalctl -b | more` to confirm configuration and setup messages.
 
 Notes:
-   - You could use Docker/Podman to build images, but you would still need to convert or export the image and burn it to an SD card for the Pi. This guide uses direct image creation and SD write for simplicity and reproducibility.
+
+- You could use Docker/Podman to build images, but you would still need to convert or export the image and burn it to an SD card for the Pi. This guide uses direct image creation and SD write for simplicity and reproducibility.
 
 - grep -v '#' /run/systemd/resolve/stub-resolv.conf
 - grep -v '#' /run/systemd/resolve/resolv.conf
 - grep -v '#' /lib/systemd/resolv.conf
-
 
 ### V2 RPI-IMAGE-GEN CLI
 

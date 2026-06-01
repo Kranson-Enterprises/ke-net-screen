@@ -52,12 +52,12 @@ jobs:
           fi
 
   integration-build:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_integration_build }}
+    # if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_integration_build }}
+    if: false
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 180
     env:
       PIHOLE_PASSWORD: ci-password-change-me
-    if: false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
