@@ -93,7 +93,6 @@ mmdebstrap:
       Name=$INTERFACE
 
       [Network]
-      Name=$INTERFACE
       DHCP=$DHCP_MODE
 
       EOF
@@ -155,4 +154,14 @@ mmdebstrap:
       link-local	169.254.0.0
       $DOMAIN         $NETWORK_BASE
       EOS
+    - |
+      install -d -m 0755 "$1/etc/systemd/system/ssh.service.d/"
+      # Make sure ssh does not register until after the network is online
+      # This is necessary when not using 0.0.0.0 for ListenAddress
+      cat > "$1/etc/systemd/system/ssh.service.d/override.conf" <<-EOSH
+      [Unit]
+      After=network-online.target
+      Wants=network-online.target
+      EOSH
+      
 
