@@ -1,4 +1,25 @@
 #!/bin/bash
+
+# ke-net-screen
+# Raspberry Pi 5 image builder for a home DNS stack based on Pi-hole,
+# Unbound, Avahi, and rpi-image-gen.
+#
+# Script role:
+#   Entry point for preflight validation, image assembly, optional source-built
+#   Unbound staging, and SD-card flashing workflows.
+#
+# Versioning:
+#   Release and artifact versions are repository/tag driven. This script uses the
+#   current project state and the underlying rpi-image-gen versioning flow rather
+#   than a hardcoded script version.
+#
+# Documentation:
+#   README.md    Build, deployment, and source-Unbound workflow guidance.
+#   RELEASE.md   Release preparation, validation, and publication checklist.
+#
+# Usage:
+#   ./ke-net-screen.sh [--preflight] [--build-only] [--source-unbound]
+
 set -e  # Exit immediately if a command exits with a non-zero status.
 set -u  # Treat unset variables as an error when substituting.
 set -o pipefail  # Prevent errors in a pipeline from being masked.

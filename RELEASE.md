@@ -19,6 +19,7 @@ Run local checks before tagging:
 ```
 
 This validates:
+
 - Bash syntax in critical scripts (ke-net-screen.sh, dns-health-check.sh)
 - No hardcoded Pi-hole password in layer definitions
 - SSH hardening policy baseline (PasswordAuthentication yes, PermitRootLogin no, strong ciphers, public key auth)
@@ -59,6 +60,7 @@ grep -q "check_sysctl_min\|check_cpu_governor\|check_unbound_cache_stats" home/s
 ```
 
 Key metrics to establish baseline post-deployment:
+
 - Kernel buffer sizes (`net.core.rmem_max`, `net.core.wmem_max`)
 - CPU governor state (performance vs. powersave)
 - Unbound cache hit/miss ratios
@@ -70,6 +72,7 @@ Key metrics to establish baseline post-deployment:
 ```
 
 This validates all 10 required artifacts exist:
+
 - `deployed.json` – Deployment metadata
 - `config.yaml.zst` – Compressed config
 - `image.json.zst` – Compressed image metadata
@@ -91,7 +94,7 @@ git tag -a vX.Y.Z -m "Release vX.Y.Z"
 git push origin vX.Y.Z
 ```
 
-3. Publish release notes and attach build metadata and image artifacts from local build output.
+1. Publish release notes and attach build metadata and image artifacts from local build output.
 
 ## 6. Post-Merge Validation (before tag)
 
@@ -123,7 +126,7 @@ If a release is bad:
 
 - Never commit `.env`.
 - Set `PIHOLE_PASSWORD` in `.env` before build (takes precedence over command line).
-- If `.env` is not present, set via command line with leading space: `  PIHOLE_PASSWORD='Ch@ngeM3' ./ke-net-screen.sh` to avoid shell history.
+- If `.env` is not present, set via command line with leading space: `PIHOLE_PASSWORD='Ch@ngeM3' ./ke-net-screen.sh` to avoid shell history.
 - Treat built images as sensitive until first boot completes because the initial Pi-hole password is present in a one-time boot-partition secret file.
 - Use `--preflight` before every release build.
 - Only flash to a device after explicit path verification.
@@ -133,10 +136,12 @@ If a release is bad:
 This release includes verified security and performance improvements:
 
 **Security Enhancements:**
+
 - SSH hardening policy enforces public key authentication, no root login, strong ciphers (ChaCha20-Poly1305, AES-GCM).
 - Baseline validation checks SSH policy during pre-release gate.
 
 **Performance Observability:**
+
 - DNS health check now monitors kernel buffer tuning (`net.core.rmem_max`, `net.core.wmem_max`, `net.core.netdev_max_backlog`).
 - CPU governor state is checked and logged.
 - Unbound cache hit/miss and rate-limit counters are captured.

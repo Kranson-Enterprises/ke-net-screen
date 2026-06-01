@@ -157,7 +157,30 @@ The `PIHOLE_PASSWORD` value is embedded into a one-time secret file on the boot 
 
 By default, the image uses package-managed Unbound behavior.
 
+Layer wiring for source-mode support is controlled in `layer/ke-00-layer.yaml` under `X-Env-Layer-Requires`.
+
+Current default includes `ke-unbsrccfg`:
+
+```text
+# X-Env-Layer-Requires: systemd-net-min,ke-unbsrccfg,ke-unbcfg,ke-piholecfg,ke-avhicfg
+```
+
+To disable source-artifact install behavior, remove `ke-unbsrccfg` from the list:
+
+```text
+# X-Env-Layer-Requires: systemd-net-min,ke-unbcfg,ke-piholecfg,ke-avhicfg
+```
+
+To re-enable it later, add `ke-unbsrccfg` back into `X-Env-Layer-Requires`.
+When present, the `ke-unbsrccfg` layer installs staged source-built Unbound artifacts when available and safely falls back to package-managed Unbound when artifacts are not present.
+
 Enable source-built Unbound explicitly:
+
+```bash
+./ke-net-screen.sh --source-unbound
+```
+
+Build-only variant:
 
 ```bash
 ./ke-net-screen.sh --source-unbound --build-only
@@ -448,6 +471,7 @@ The ./layer folder utilize META dependencies and variable expansion to feed the 
 ./layer/ke-00-layer      # X-Env-Layer-Requires creates ordered dependencies
 ./layer/ke-03-knlcfg     # Set US locale, assigns kernel, cmdline, config.txt settings
 ./layer/ke-05-netcfg     # Variable expansion to configure network
+./layer/ke-08-unbsrccfg  # Optional source-built unbound artifact install layer (from build staging)
 ./layer/ke-10-unbcfg     # Variable expansion to configure unbound, requires knlcfg settings
 ./layer/ke-15-piholecfg  # Stages and configures first boot install and configure pi-hole with unbound
 ./layer/ke-20-avhicfg    # Install and secure hardening of mDNS/AppleTalk/Avahi-daemon
