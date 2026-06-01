@@ -1,19 +1,19 @@
-# Pi-hole configuration file (v6.4.1)
+# Pi-hole configuration file (v6.6.1)
 # Encoding: UTF-8
 # This file is managed by pihole-FTL
-# Last updated on 2026-04-04 14:43:30 EDT
+# Last updated on 2026-04-30 16:22:53 EDT
 
 [dns]
   # Upstream DNS Servers to be used by Pi-hole. If this is not set, Pi-hole will not
   # resolve any non-local queries.
   #
-  # Example: [ "1.1.1.1", "127.0.0.1#5335", "docker-resolver" ]
+  # Example: [ "8.8.8.8", "127.0.0.1#5335", "docker-resolver" ]
   #
   # Allowed values are:
   #     Array of IP addresses and/or hostnames, optionally with a port (#...)
   upstreams = [
     "127.0.0.1#5335"
-  ] ### CHANGED, default = [], unbound 127.0.0.1#5335
+  ] ### CHANGED, default = []
 
   # Use this option to control deep CNAME inspection. Disabling it might be beneficial
   # for very low-end devices
@@ -22,18 +22,23 @@
   #     true or false
   CNAMEdeepInspect = true
 
-  # Should _esni. subdomains be blocked by default? Encrypted Server Name Indication
-  # (ESNI) is certainly a good step into the right direction to enhance privacy on the
-  # web. It prevents on-path observers, including ISPs, coffee shop owners and
-  # firewalls, from intercepting the TLS Server Name Indication (SNI) extension by
-  # encrypting it. This prevents the SNI from being used to determine which websites
-  # users are visiting.
+  # Should _esni. subdomains of blocked domains also be blocked by default? Encrypted
+  # Server Name Indication (ESNI) is certainly a good step into the right direction to
+  # enhance privacy on the web. It prevents on-path observers, including ISPs, coffee
+  # shop owners and firewalls, from intercepting the TLS Server Name Indication (SNI)
+  # extension by encrypting it. This prevents the SNI from being used to determine which
+  # websites users are visiting.
   #
   # ESNI will obviously cause issues for pixelserv-tls which will be unable to generate
-  # matching certificates on-the-fly when it cannot read the SNI. Cloudflare and Firefox
-  # are already enabling ESNI. According to the IETF draft (link above), we can easily
-  # restore pixelserv-tls's operation by replying NXDOMAIN to _esni. subdomains of
-  # blocked domains as this mimics a "not configured for this domain" behavior.
+  # matching certificates on-the-fly when it cannot read the SNI. According to the IETF
+  # draft (link above), we can easily restore pixelserv-tls's operation by replying
+  # NXDOMAIN to _esni. subdomains of blocked domains as this mimics a "not configured
+  # for this domain" behavior.
+  #
+  # ESNI is mostly obsolete. It was previously rolled out by Cloudflare and Firefox, but
+  # they, as well as almost every client and server, are now using Encrypted Client
+  # Hello (ECH) instead of ESNI. ECH is served via the HTTPS record on the same RRname,
+  # so it will automatically be blocked.
   #
   # Allowed values are:
   #     true or false
@@ -453,8 +458,8 @@
 
       # Custom IPv4 address for the Pi-hole host
       #
-      # Possible values are:
-      #     <valid IPv4 address> or empty string ("")
+      # Allowed values are:
+      #     A valid IPv4 address or empty string ("")
       IPv4 = "IGconf_network_ipaddress" ### CHANGED, default = ""
 
       # Use a specific IPv6 address for the Pi-hole host? See description for the IPv4
@@ -1267,12 +1272,6 @@
       unit = "C"
 
 [files]
-  # The file which contains the PID of FTL's main process.
-  #
-  # Allowed values are:
-  #     Any writable file
-  pid = "/run/pihole-FTL.pid"
-
   # The location of FTL's long-term database
   #
   # Allowed values are:
@@ -1729,5 +1728,6 @@
   all = false
 
 # Configuration statistics:
-# 167 total entries out of which 148 entries are default
+# 166 total entries out of which 147 entries are default
 # --> 19 entries are modified
+

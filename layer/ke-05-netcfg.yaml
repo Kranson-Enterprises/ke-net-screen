@@ -108,9 +108,12 @@ mmdebstrap:
 
       # DNS servers
       # Primary: Localhost (Pi-hole on port 53)
-      # DNS=$DNS0 let systemd-resolved own global DNS
+      DNS=$DNS0 
+      # Comment out above to let systemd-resolved own global DNS
+      # Forcing here to enable further unbound checkings
       # Fallback: additional DNS servers from config
       DNS=$DNS1
+      # Only two are supported, three can be shown but will cause warning
       DNS=$DNS2
       EOF
       fi
@@ -151,4 +154,14 @@ mmdebstrap:
       link-local	169.254.0.0
       $DOMAIN         $NETWORK_BASE
       EOS
+    - |
+      install -d -m 0755 "$1/etc/systemd/system/ssh.service.d/"
+      # Make sure ssh does not register until after the network is online
+      # This is necessary when not using 0.0.0.0 for ListenAddress
+      cat > "$1/etc/systemd/system/ssh.service.d/override.conf" <<-EOSH
+      [Unit]
+      After=network-online.target
+      Wants=network-online.target
+      EOSH
+      
 

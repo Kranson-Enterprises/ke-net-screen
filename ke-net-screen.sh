@@ -1,4 +1,25 @@
 #!/bin/bash
+
+# ke-net-screen
+# Raspberry Pi 5 image builder for a home DNS stack based on Pi-hole,
+# Unbound, Avahi, and rpi-image-gen.
+#
+# Script role:
+#   Entry point for preflight validation, image assembly, optional source-built
+#   Unbound staging, and SD-card flashing workflows.
+#
+# Versioning:
+#   Release and artifact versions are repository/tag driven. This script uses the
+#   current project state and the underlying rpi-image-gen versioning flow rather
+#   than a hardcoded script version.
+#
+# Documentation:
+#   README.md    Build, deployment, and source-Unbound workflow guidance.
+#   RELEASE.md   Release preparation, validation, and publication checklist.
+#
+# Usage:
+#   ./ke-net-screen.sh [--preflight] [--build-only] [--source-unbound]
+
 set -e  # Exit immediately if a command exits with a non-zero status.
 set -u  # Treat unset variables as an error when substituting.
 set -o pipefail  # Prevent errors in a pipeline from being masked.
@@ -15,6 +36,7 @@ DEFAULT_SD_DEVICE="/dev/mmcblk0"
 ENV_FILE="$PROJECT_ROOT/.env"
 BUILD_ONLY=0
 PREFLIGHT_ONLY=0
+UNBOUND_SOURCE=0
 MIN_FREE_MB=12288
 
 resolve_build_user_pubkey() {
@@ -55,9 +77,12 @@ usage() {
 Usage: ./ke-net-screen.sh [option]
 
 Options:
-  --preflight   Run prerequisite checks only and exit.
-  --build-only  Build image artifacts without writing to an SD card.
-  --help        Show this help text.
+  --preflight       Run prerequisite checks only and exit.
+  --build-only      Build image artifacts without writing to an SD card.
+  --source-unbound  Build Unbound from source (vendors/unbound) before
+                    assembling the image.  Requires the vendors/unbound
+                    submodule and libssl-dev + libexpat1-dev.
+  --help            Show this help text.
 EOF
 }
 
@@ -69,6 +94,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --build-only)
       BUILD_ONLY=1
+      shift
+      ;;
+    --source-unbound)
+      UNBOUND_SOURCE=1
       shift
       ;;
     --help|-h)
@@ -271,16 +300,39 @@ fi
 rm -Rf "$OUTDIR" 2>/dev/null || sudo rm -Rf "$OUTDIR"
 mkdir -p "$OUTDIR"
 
-# skip invoking syft
-export IGconf_sbom_enable=n
+if [[ $UNBOUND_SOURCE -eq 1 ]]; then
+  echo "[unbound-source] Building Unbound from source before image assembly...--with-pihole-conf-check"
+  bash "$SCRIPT_DIR/scripts/build-unbound.sh" "$OUTDIR" --with-pihole-conf-check
+  echo "[unbound-source] Source build complete."
+else
+  echo "[unbound-source] Source mode disabled; image will use package-managed unbound (default)."
+fi
+
 # apt_cachedir="$SCRIPT_DIR/apt-cache"
 # mkdir -p "$apt_cachedir"
 # Execute with the options file
 ./rpi-image-gen build -S "$SCRIPT_DIR" -c "$LAYER_CONFIG" -B "$OUTDIR"
+# skip invoking syft
+# ./rpi-image-gen build -S "$SCRIPT_DIR" -c "$LAYER_CONFIG" -B "$OUTDIR" -- IGconf_sbom_enable=n
 
 sleep 2
 
 cd "$PROJECT_ROOT"
+
+# Validate source-built Unbound presence in the rootfs when source mode was used.
+if [[ $UNBOUND_SOURCE -eq 1 ]]; then
+  shopt -s nullglob
+  unbound_candidates=("$OUTDIR"/chroot-*/filesystem/usr/sbin/unbound)
+  shopt -u nullglob
+
+  ROOTFS_UNBOUND="${unbound_candidates[0]:-}"
+  if [[ -z "$ROOTFS_UNBOUND" ]]; then
+    echo "ERROR: --source-unbound was set but unbound was not found in the image rootfs." >&2
+    echo "       Check ke-08-unbsrccfg hook output in the build log." >&2
+    exit 1
+  fi
+  echo "[unbound-source] Verified: source-built unbound present in rootfs at $ROOTFS_UNBOUND"
+fi
 
 # sudo rpi-imager --cli "$OUTDIR/image-deb13-arm64-splash/deb13-arm64-splash.img" /dev/mmcblk0
 

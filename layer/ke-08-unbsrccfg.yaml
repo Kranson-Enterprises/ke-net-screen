@@ -11,7 +11,11 @@ mmdebstrap:
   customize-hooks:
     - |
       # Install source-built Unbound artifacts from staging if present.
+      # Keep this hook POSIX-sh compatible (mmdebstrap runs hooks under /bin/sh).
       STAGING_ROOT="${IGconf_sys_buildroot}/staging"
+      if [ ! -d "$STAGING_ROOT" ] && [ -n "${IGconf_sys_workroot:-}" ] && [ -d "${IGconf_sys_workroot}/build/staging" ]; then
+        STAGING_ROOT="${IGconf_sys_workroot}/build/staging"
+      fi
       STAGING_USR=""
 
       if [ -d "$STAGING_ROOT" ]; then
@@ -50,6 +54,9 @@ mmdebstrap:
       fi
       if [ -x "$STAGING_USR/sbin/unbound-host" ]; then
         cp -a "$STAGING_USR/sbin/unbound-host" "$1/usr/sbin/"
+      fi
+      if [ -x "$STAGING_USR/sbin/unbound-control-setup" ]; then
+        cp -a "$STAGING_USR/sbin/unbound-control-setup" "$1/usr/sbin/"
       fi
 
       if [ -d "$STAGING_USR/lib" ]; then

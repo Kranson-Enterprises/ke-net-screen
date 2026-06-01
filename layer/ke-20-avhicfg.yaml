@@ -11,6 +11,7 @@ mmdebstrap:
   variant: minbase
   packages:
     - avahi-daemon
+    - avahi-utils
     - libnss-mdns
   customize-hooks:
     - |
@@ -74,7 +75,7 @@ mmdebstrap:
 
       [Timer]
       OnBootSec=2min
-      OnUnitActiveSec=1h
+      OnUnitActiveSec=23h
       Persistent=true
 
       [Install]
