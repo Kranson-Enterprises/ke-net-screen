@@ -91,6 +91,49 @@ mmdebstrap:
       install -d -m 0755 "$1/etc/systemd/system/multi-user.target.wants"
       ln -sf "/etc/systemd/system/run-pihole-firstboot.service" "$1/etc/systemd/system/multi-user.target.wants/run-pihole-firstboot.service"
     - |
+      # Weekly blocklist refresh. The unattended Pi-hole installer does not
+      # reliably create /etc/cron.d/pihole (observed: zero gravity updates
+      # in 12 days on a deployed host), so ship a systemd timer instead.
+      install -d -m 0755 "$1/etc/systemd/system"
+      cat > "$1/etc/systemd/system/pihole-gravity.service" <<'EOGSVC'
+      [Unit]
+      Description=Update Pi-hole blocklists (gravity)
+      Wants=network-online.target
+      After=network-online.target pihole-FTL.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/pihole updateGravity
+      Nice=10
+      IOSchedulingClass=idle
+      EOGSVC
+
+      cat > "$1/etc/systemd/system/pihole-gravity.timer" <<'EOGTMR'
+      [Unit]
+      Description=Weekly Pi-hole blocklist refresh
+
+      [Timer]
+      OnCalendar=Sun *-*-* 03:00:00
+      RandomizedDelaySec=4h
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+      EOGTMR
+
+      install -d -m 0755 "$1/etc/systemd/system/timers.target.wants"
+      ln -sf "/etc/systemd/system/pihole-gravity.timer" "$1/etc/systemd/system/timers.target.wants/pihole-gravity.timer"
+    - |
+      # pihole-FTL can need more than 60s to flush its long-term database on
+      # stop, and a SIGKILL there risks DB corruption (observed 2026-09-02
+      # during maintenance).  The unit itself is created by the installer at
+      # first boot; this drop-in applies as soon as the unit exists.
+      install -d -m 0755 "$1/etc/systemd/system/pihole-FTL.service.d"
+      cat > "$1/etc/systemd/system/pihole-FTL.service.d/override.conf" <<'EOFTL'
+      [Service]
+      TimeoutStopSec=180
+      EOFTL
+    - |
       # Copy local pi-hole adlist import script and default adlist CSV
       REPO_ROOT=${SRCROOT:?SRCROOT is required}
       install -d -m 0755 "$1/usr/local/src/pihole/"
