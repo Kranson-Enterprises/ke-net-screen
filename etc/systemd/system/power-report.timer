@@ -1,0 +1,14 @@
+# power-report.timer — hourly power snapshot for the weekly energy review. At the default
+# report size the 512 KiB log holds ~10 days per generation (two generations kept). Change
+# OnUnitActiveSec to taste (e.g. 15min while profiling a workload). Persistent=true
+# catches up a missed run.
+[Unit]
+Description=Run power / thermal report hourly
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

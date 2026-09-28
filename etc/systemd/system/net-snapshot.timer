@@ -1,0 +1,12 @@
+# net-snapshot.timer — hourly snapshot for the weekly review. Change OnUnitActiveSec to
+# taste (e.g. 15min for finer granularity). Persistent=true catches up a missed run.
+[Unit]
+Description=Run kernel network stats snapshot hourly
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

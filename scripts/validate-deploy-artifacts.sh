@@ -24,10 +24,12 @@ fi
 echo "[check] deploy directory: $DEPLOY_DIR"
 
 # Validate presence of core metadata emitted by the build pipeline.
+# rpi-image-gen >= v2.8.0-54 ("deploy: one basename per build") no longer places
+# image.json or the per-partition sparse images at the top level: they are the
+# payload of the IDP bundle (<image name>.idp.tar.zst), checked further down.
 required_files=(
   deployed.json
   config.yaml.zst
-  image.json.zst
   manifest.zst
 )
 
@@ -46,6 +48,24 @@ fi
 if ! ls "$DEPLOY_DIR"/*.sbom.zst >/dev/null 2>&1; then
   echo "[fail] no compressed SBOM artifact (*.sbom.zst) found"
   exit 1
+fi
+
+# IDP bundle: must exist and carry image.json plus the partition payloads.
+idp_bundles=("$DEPLOY_DIR"/*.idp.tar.zst)
+if [[ ! -f "${idp_bundles[0]}" ]]; then
+  echo "[fail] no IDP bundle (*.idp.tar.zst) found"
+  exit 1
+fi
+if ! command -v zstd >/dev/null 2>&1; then
+  echo "[warn] zstd not installed; skipping IDP bundle content check"
+else
+  idp_listing="$(zstd -dc "${idp_bundles[0]}" | tar -t 2>/dev/null || true)"
+  for member in image.json boot.vfat.sparse root.ext4.sparse; do
+    if ! grep -qx "$member" <<< "$idp_listing"; then
+      echo "[fail] IDP bundle ${idp_bundles[0]##*/} lacks $member"
+      exit 1
+    fi
+  done
 fi
 
 echo "[ok] required deploy artifacts are present"

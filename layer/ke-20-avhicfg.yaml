@@ -84,4 +84,3 @@ mmdebstrap:
 
       install -d -m 0755 "$1/etc/systemd/system/timers.target.wants"
       ln -sf "/etc/systemd/system/dns-health-check.timer" "$1/etc/systemd/system/timers.target.wants/dns-health-check.timer"
-  cleanup-hooks:

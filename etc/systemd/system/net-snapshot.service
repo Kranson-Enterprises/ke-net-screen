@@ -1,0 +1,18 @@
+# net-snapshot.service — runs the read-only nstat/ss snapshot.
+# Install mirrors dns-health-check (see layer/ke-20-avhicfg.yaml): the build copies
+# home/scripts/monitoring/net-snapshot.sh -> /usr/local/bin/net-snapshot.sh and drops this
+# unit. For a manual test on the appliance:
+#   sudo cp home/scripts/monitoring/net-snapshot.sh /usr/local/bin/ && sudo chmod 0755 /usr/local/bin/net-snapshot.sh
+#   sudo cp etc/systemd/system/net-snapshot.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now net-snapshot.timer
+[Unit]
+Description=Kernel network stats snapshot (nstat/ss)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/net-snapshot.sh
+
+[Install]
+WantedBy=multi-user.target

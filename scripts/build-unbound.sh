@@ -33,6 +33,18 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+# Running as root poisons the build cache and staging tree with root-owned
+# files that later rootless builds cannot modify or remove. Refuse early.
+if [[ ${EUID} -eq 0 ]]; then
+  echo "ERROR: do not run this script with sudo/as root - the build is rootless." >&2
+  echo "       Root-owned files in .unbound-build/ and the staging tree break" >&2
+  echo "       subsequent unprivileged builds." >&2
+  echo "       Flashing does not need a root build either: ke-net-screen.sh" >&2
+  echo "       caches sudo once at the start and keeps it fresh for the" >&2
+  echo "       post-build flash - answer the initial prompts, then walk away." >&2
+  exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
@@ -64,6 +76,10 @@ fi
 
 OUTDIR="$1"
 shift
+# Normalize to an absolute path: make install runs from the build cache and
+# libtool rejects a relative DESTDIR ("must be an absolute directory name").
+mkdir -p "$OUTDIR"
+OUTDIR="$(cd "$OUTDIR" && pwd)"
 
 WITH_PIHOLE_CONF_CHECK=0
 FRESH_BUILD=0
@@ -118,6 +134,18 @@ echo "==> Unbound $UNBOUND_VER  source: $VENDOR_SRC"
 echo "==> Build cache: $BUILD_CACHE"
 echo "==> Staging target: $STAGING_DIR"
 
+# Optional TCP Fast Open server support (RFC 7413), opt-in via
+# UNBOUND_ENABLE_TFO_SERVER=y in .env (the wrapper exports it) or the
+# environment.  Compile-time only: the listener then sets TCP_FASTOPEN on
+# its TCP sockets.  The kernel must also allow server-side TFO
+# (net.ipv4.tcp_fastopen bit 0x2 - 99-unbound-tuning.conf sets 3).
+UNBOUND_ENABLE_TFO_SERVER="${UNBOUND_ENABLE_TFO_SERVER:-n}"
+EXTRA_CONFIGURE_ARGS=()
+if [[ "${UNBOUND_ENABLE_TFO_SERVER,,}" =~ ^y(es)?$ ]]; then
+  EXTRA_CONFIGURE_ARGS+=(--enable-tfo-server)
+  echo "==> TCP Fast Open server support: enabled (--enable-tfo-server)"
+fi
+
 for dep_pkg in libssl-dev libexpat1-dev; do
   if ! dpkg-query -W -f='${Status}' "$dep_pkg" 2>/dev/null | grep -q "install ok"; then
     echo "ERROR: build dependency '$dep_pkg' is not installed." >&2
@@ -148,15 +176,18 @@ if [[ -d "$BUILD_CACHE" && ( -f "$BUILD_CACHE/Makefile" || -f "$CONF_MARKER" ) ]
 fi
 
 # ---------------------------------------------------------------------------
-# Configure (once; re-runs automatically if configure script changes)
+# Configure (once; re-runs automatically if the configure script or the
+# chosen configure options change)
 # ---------------------------------------------------------------------------
-CONF_SRC_HASH="$(sha256sum "$VENDOR_SRC/configure" | awk '{print $1}')"
+CONF_SRC_HASH="$(printf '%s %s' \
+  "$(sha256sum "$VENDOR_SRC/configure" | awk '{print $1}')" \
+  "${EXTRA_CONFIGURE_ARGS[*]:-}" | sha256sum | awk '{print $1}')"
 
 reconfigure=0
 if [[ ! -f "$CONF_MARKER" ]]; then
   reconfigure=1
 elif [[ "$(cat "$CONF_MARKER" 2>/dev/null)" != "$CONF_SRC_HASH" ]]; then
-  echo "==> configure script changed – reconfiguring"
+  echo "==> configure script or options changed – reconfiguring"
   reconfigure=1
 fi
 
@@ -198,7 +229,8 @@ if [[ $reconfigure -eq 1 ]]; then
     --with-chroot-dir="" \
     --without-pythonmodule \
     --without-dynlibmodule \
-    --enable-systemd
+    --enable-systemd \
+    "${EXTRA_CONFIGURE_ARGS[@]}"
   printf '%s' "$CONF_SRC_HASH" > "$CONF_MARKER"
 fi
 

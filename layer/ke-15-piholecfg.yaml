@@ -15,9 +15,16 @@ mmdebstrap:
       install -d -m 0755 "$1/usr/local/sbin" "$1/usr/local/src/pihole-installer"
       install -d -m 0755 "$1/boot/firmware/ke-secrets"
 
-      # Persist the initial Pi-hole password to the boot partition for one-time first-boot use.
-      if [ -n "${PIHOLE_PASSWORD:-}" ]; then
-        printf '%s\n' "$PIHOLE_PASSWORD" > "$1/boot/firmware/ke-secrets/pihole-admin-password.txt"
+      # Persist the initial Pi-hole password to the boot partition for one-time
+      # first-boot use. Read it from IGconf (the sanctioned hook channel):
+      # rpi-image-gen >= v2.8.0-28 strips ambient env vars from hooks, which
+      # silently emptied the old ${PIHOLE_PASSWORD} reference and shipped an
+      # image whose first boot disabled the web password (observed 2026-09-06).
+      KE_PIHOLE_PW="${IGconf_ke_pihole_password:-${PIHOLE_PASSWORD:-}}"
+      if [ -n "$KE_PIHOLE_PW" ]; then
+        printf '%s\n' "$KE_PIHOLE_PW" > "$1/boot/firmware/ke-secrets/pihole-admin-password.txt"
+      else
+        echo "WARNING: ke-piholecfg: no Pi-hole password available to stage; first boot will disable the web password" >&2
       fi
 
       DNS2=${IGconf_network_dns2:?IGconf_network_dns2 is required}
@@ -124,6 +131,40 @@ mmdebstrap:
       install -d -m 0755 "$1/etc/systemd/system/timers.target.wants"
       ln -sf "/etc/systemd/system/pihole-gravity.timer" "$1/etc/systemd/system/timers.target.wants/pihole-gravity.timer"
     - |
+      # Daily Pi-hole query-log rotation. Upstream schedules this through
+      # /etc/cron.d/pihole, which the unattended installer does not reliably
+      # create (observed: zero cron activity in 12 days, pihole.log growing
+      # unbounded). Mirrors the upstream cron line, which drives Pi-hole's
+      # own logrotate config; the logrotate binary is an installer dependency.
+      install -d -m 0755 "$1/etc/systemd/system"
+      cat > "$1/etc/systemd/system/pihole-logflush.service" <<'EOLFSVC'
+      [Unit]
+      Description=Rotate Pi-hole query logs (pihole flush)
+      After=pihole-FTL.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/pihole flush once quiet
+      Nice=10
+      IOSchedulingClass=idle
+      EOLFSVC
+
+      cat > "$1/etc/systemd/system/pihole-logflush.timer" <<'EOLFTMR'
+      [Unit]
+      Description=Daily Pi-hole log rotation
+
+      [Timer]
+      OnCalendar=*-*-* 00:10:00
+      RandomizedDelaySec=30min
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+      EOLFTMR
+
+      install -d -m 0755 "$1/etc/systemd/system/timers.target.wants"
+      ln -sf "/etc/systemd/system/pihole-logflush.timer" "$1/etc/systemd/system/timers.target.wants/pihole-logflush.timer"
+    - |
       # pihole-FTL can need more than 60s to flush its long-term database on
       # stop, and a SIGKILL there risks DB corruption (observed 2026-09-02
       # during maintenance).  The unit itself is created by the installer at
@@ -151,7 +192,8 @@ mmdebstrap:
       # Also copy to the ke-splash location for installed reference
       install -d -m 0755 "$1/usr/local/src/pihole/"
       cp -a "$REPO_ROOT/etc/pihole/pihole.toml" "$1/usr/local/src/pihole/" 2>/dev/null || true
-      sed -i "s/\"IGconf_network_ipaddress\"/\"$PIHOLE_IPV4\"/g" "$1/etc/pihole/pihole.toml" "$1/usr/local/src/pihole/pihole.toml"
+      # Bare pattern (not just the quoted form) so placeholders embedded
+      # mid-value in longer strings resolve too.
+      sed -i "s/IGconf_network_ipaddress/$PIHOLE_IPV4/g" "$1/etc/pihole/pihole.toml" "$1/usr/local/src/pihole/pihole.toml"
       chmod 0644 "$1/etc/pihole/pihole.toml"
-  cleanup-hooks:
 

@@ -63,7 +63,7 @@ Key metrics to establish baseline post-deployment:
 
 - Kernel buffer sizes (`net.core.rmem_max`, `net.core.wmem_max`)
 - CPU governor state (expected: `schedutil`, set via `cpufreq.default_governor=` in cmdline.txt)
-- Unbound cache hit/miss ratios
+- Unbound recursions per day next to FTL's 24 h cached/forwarded split (a hit ratio is structurally ~0 % behind FTL)
 
 ## 4. Validate Artifact Metadata
 
@@ -73,13 +73,18 @@ Key metrics to establish baseline post-deployment:
 
 This checks the newest `ke-net-screen-build/deploy-*/` directory for:
 
-- Required named files: `deployed.json`, `config.yaml.zst`, `image.json.zst`, `manifest.zst`
+- Required named files: `deployed.json`, `config.yaml.zst`, `manifest.zst`
 - At least one compressed image artifact (`*.img.zst`)
 - At least one compressed SBOM (`*.sbom.zst`)
+- The IDP bundle `<image name>.idp.tar.zst`, containing `image.json`,
+  `boot.vfat.sparse` and `root.ext4.sparse`
 
-The deploy directory also contains `boot.vfat.sparse.zst`, `root.ext4.sparse.zst`,
-`*.img.sparse.zst`, and the IDP `*.tar.zst` bundle; these are produced by the
-build but not currently gated by the validator.
+Since rpi-image-gen v2.8.0-54 ("deploy: one basename per build, one hook per
+concern") every deliverable is named after `image.name`: `<name>.img.zst` is the
+classic whole-disk image and `<name>.idp.tar.zst` the provisioning bundle. The
+per-partition sparse images and `image.json` are no longer deployed as separate
+top-level files, and `SOURCE_DATE_EPOCH` is recorded alongside for reproducible
+builds.
 
 Note: after a `--source-unbound` build, the SBOM's `unbound` entry is rewritten
 with the real source version and VCS reference

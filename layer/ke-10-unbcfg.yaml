@@ -13,7 +13,6 @@ mmdebstrap:
     - unbound
     - dns-root-data
 #    - dnsutils    
-  setup-hooks:
   customize-hooks:
     - |
       # Create unbound default for environment values

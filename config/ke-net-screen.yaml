@@ -33,6 +33,10 @@ ke:
   debug: true
   name: keapp
   component: frontend
+  # Routed through IGconf so it reaches build hooks: rpi-image-gen >= v2.8.0-28
+  # sanitizes the hook environment ("crackdown on ambient env pollution"), so
+  # ambient PIHOLE_PASSWORD no longer flows to hooks directly.
+  pihole_password: $PIHOLE_PASSWORD
 
 network:
   interface: $NETWORK_INTERFACE

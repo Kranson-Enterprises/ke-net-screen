@@ -8,3 +8,5 @@ apt-cache/
 build.log
 .github/prompts/*
 private/*
+.gitea/gitea.txt
+.vscode/extensions.json

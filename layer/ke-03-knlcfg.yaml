@@ -26,6 +26,20 @@ mmdebstrap:
       cp "$REPO_ROOT/etc/sysctl.d/20-iodiskperf.conf" "$1/etc/sysctl.d" 2>/dev/null || true
       cp "$REPO_ROOT/etc/sysctl.d/99-unbound-tuning.conf" "$1/etc/sysctl.d" 2>/dev/null || true
     - |
+      # Blacklist kernel modules unused on this wired appliance (Wi-Fi, camera,
+      # unused peripheral buses; display and IPv6 untouched)
+      set -eu
+      REPO_ROOT=${SRCROOT:?SRCROOT is required}
+      install -d -m 0755 "$1/etc/modprobe.d"
+      cp "$REPO_ROOT/etc/modprobe.d/ke-appliance-blacklist.conf" "$1/etc/modprobe.d" 2>/dev/null || true
+    - |
+      # Reduce systemd-timesyncd clock-file writes (wear cadence ladder);
+      # see comment in the drop-in itself.
+      set -eu
+      REPO_ROOT=${SRCROOT:?SRCROOT is required}
+      install -d -m 0755 "$1/etc/systemd/timesyncd.conf.d"
+      cp "$REPO_ROOT/etc/systemd/timesyncd.conf.d/ke-timesync.conf" "$1/etc/systemd/timesyncd.conf.d" 2>/dev/null || true
+    - |
       # Tune the boot parameters for minimal resource usage
       # Disable bluetooth and other services not needed for headless servers
       REPO_ROOT=${SRCROOT:?SRCROOT is required}

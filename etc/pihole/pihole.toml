@@ -122,7 +122,7 @@
   #
   # Allowed values are:
   #     A positive integer value in seconds
-  blockTTL = 2
+  blockTTL = 180
 
   # Array of custom DNS records
   #
@@ -662,7 +662,7 @@
   # Allowed values are:
   #     Array of static leases each one in the following form:
   #     "[<hwaddr>][,id:<client_id>|*][,set:<tag>][,tag:<tag>][,<ipaddr>][,<hostname>][,<lease_time>][,ignore]"
-  hosts = []
+  hosts = [] ### CHANGED, default = []
 
   [ntp.ipv4]
     # Should FTL act as network time protocol (NTP) server (IPv4)?
@@ -695,7 +695,9 @@
     #
     # Allowed values are:
     #     true or false
-    active = true
+    active = false ### CHANGED, default = true - systemd-timesyncd owns clock
+                   ### discipline (two NTP clients oscillate); FTL still
+                   ### serves NTP to the LAN via ntp.ipv4/ipv6.
 
     # NTP upstream server to sync with, e.g., "pool.ntp.org". Note that the NTP server
     # should be located as close as possible to you in order to minimize the time offset
@@ -818,7 +820,8 @@
   #
   # Allowed values are:
   #     A positive integer value in seconds
-  DBinterval = 60
+  # Default 60 for every minute make 600 for 5 mins to save ssd write life
+  DBinterval = 600
 
   # Should FTL enable Write-Ahead Log (WAL) mode for the on-disk query database
   # (configured via files.database)?
@@ -1412,7 +1415,20 @@
   #
   # Allowed values are:
   #     Array of valid dnsmasq config line options
-  dnsmasq_lines = []
+  # NOTE: no manual option-42 (ntp-server) entry is needed here. With the
+  # FTL NTP server (ntp.ipv4/ipv6) and DHCP both active, FTL advertises
+  # itself as the LAN time server automatically; adding a manual line
+  # produces "Ignoring duplicate dhcp-option 42" (observed on first boot
+  # 2026-09-06).
+  #
+  # proxy-dnssec: forward unbound's validated AD bit to LAN clients instead
+  # of stripping it (dnsmasq default). Safe here because the only upstream
+  # is our own validating unbound on loopback. Without it, clients see
+  # AD=0 on valid signed answers even though validation happens (bogus
+  # answers still SERVFAIL either way - verified 2026-09-06).
+  dnsmasq_lines = [
+    "proxy-dnssec"
+  ] ### CHANGED, default = []
 
   # Log additional information about queries and replies to pihole.log
   #

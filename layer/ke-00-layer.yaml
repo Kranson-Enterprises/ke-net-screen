@@ -10,8 +10,8 @@
 # X-Env-VarRequires: IGconf_device_user1
 # X-Env-VarRequires-Valid: string
 #
-# X-Env-VarOptional: IGconf_device_user1pass,LOG_LEVEL
-# X-Env-VarOptional-Valid: string,string
+# X-Env-VarOptional: IGconf_device_user1pass,LOG_LEVEL,IGconf_ke_pihole_password
+# X-Env-VarOptional-Valid: string,string,string
 # METAEND
 mmdebstrap:
   suite: trixie

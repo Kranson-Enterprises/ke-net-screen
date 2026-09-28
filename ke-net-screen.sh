@@ -252,6 +252,17 @@ manage_existing_apt_cache
 # read -p "Insert the SD card before continuing...it will be erased!"
 
 if [[ $BUILD_ONLY -eq 0 ]]; then
+  # Flashing needs sudo twice: dd before the build and rpi-imager after it.
+  # Cache the credential once now and keep it fresh in the background so the
+  # post-build flash never re-prompts - answer the prompts below, then the
+  # rest of the run is unattended. Do NOT run this script itself with sudo:
+  # a root-owned build tree breaks subsequent rootless builds.
+  echo "Authorizing sudo for device operations (single password prompt)..."
+  sudo -v
+  ( while kill -0 $$ 2>/dev/null; do sudo -n -v 2>/dev/null || true; sleep 60; done ) &
+  SUDO_KEEPALIVE_PID=$!
+  trap 'kill "${SUDO_KEEPALIVE_PID:-0}" 2>/dev/null || true' EXIT
+
   # Show available devices only when flashing is requested.
   echo "-------------------------------------------------------------------------"
   echo "Available devices:"

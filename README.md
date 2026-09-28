@@ -192,6 +192,15 @@ Optional: validate your runtime Unbound config against the staged source binary 
 ./scripts/build-unbound.sh ./ke-net-screen-build --with-pihole-conf-check
 ```
 
+The source build caches its objects in `.unbound-build/` (gitignored). A change
+to `vendors/unbound` or to the configure options triggers a reconfigure
+automatically, but for a release build start clean so no stale object survives:
+
+```bash
+rm -rf .unbound-build            # or: ./scripts/build-unbound.sh ./ke-net-screen-build --fresh-build
+./ke-net-screen.sh --source-unbound --apt-cache --build-only
+```
+
 #### APT package cache (faster repeat builds)
 
 Pass `--apt-cache` to enable a host-side APT package cache. The cache lives in
@@ -508,6 +517,15 @@ NETWORK_DOMAIN=lan               # your local domain.
                                  # Avahi-Daemon. It will be in /etc/networks
                                  # for kernel lookups.
 ```
+
+#### Unbound Build Options
+
+`UNBOUND_ENABLE_TFO_SERVER` (in `.env`, default `n`) compiles TCP Fast Open
+server support into the source-built Unbound (`--enable-tfo-server`). Set it to
+`y` only together with the `net.ipv4.tcp_fastopen` sysctl shipped in
+`etc/sysctl.d/99-unbound-tuning.conf`; the wrapper exports it to
+`scripts/build-unbound.sh`, and a change of value triggers a reconfigure of the
+cached build.
 
 #### Image Size
 
