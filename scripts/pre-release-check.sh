@@ -12,6 +12,16 @@ bash -n ke-net-screen.sh
 echo "[check] bash syntax: dns-health-check.sh"
 bash -n home/scripts/monitoring/dns-health-check.sh
 
+echo "[check] bash syntax: net-snapshot.sh, power-report.sh"
+bash -n home/scripts/monitoring/net-snapshot.sh
+bash -n home/scripts/monitoring/power-report.sh
+
+# The ke-avhicfg layer installs these from the repository; a missing file fails the build late.
+echo "[check] monitoring units present"
+for unit in net-snapshot.service net-snapshot.timer power-report.service power-report.timer; do
+  test -f "etc/systemd/system/$unit" || { echo "[fail] missing etc/systemd/system/$unit"; exit 1; }
+done
+
 # Prevent shipping with an accidental hardcoded default password.
 echo "[check] hardcoded Pi-hole password"
 if grep -R --line-number "pihole setpassword Ch@ngeM3" layer; then

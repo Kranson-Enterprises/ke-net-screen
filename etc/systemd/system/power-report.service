@@ -1,8 +1,9 @@
 # power-report.service — runs the read-only power / thermal report (vcgencmd + PMIC ADC).
-# Install mirrors net-snapshot: the build copies home/scripts/monitoring/power-report.sh
-# -> /usr/local/bin/power-report.sh and drops this unit. Runs as root, so vcgencmd needs
-# no group video. --samples 10 averages ten one-second PMIC reads per run so the hourly
-# trend line is steadier than a single instant. For a manual test on the appliance:
+# Install mirrors dns-health-check (see layer/ke-20-avhicfg.yaml): the build copies
+# home/scripts/monitoring/power-report.sh -> /usr/local/bin/power-report.sh, drops this unit
+# and the timer, and enables the timer. Runs as root, so vcgencmd needs no group video.
+# --samples 10 averages ten one-second PMIC reads per run so the hourly trend line is
+# steadier than a single instant. To test a newer copy on a running appliance:
 #   sudo cp home/scripts/monitoring/power-report.sh /usr/local/bin/ && sudo chmod 0755 /usr/local/bin/power-report.sh
 #   sudo cp etc/systemd/system/power-report.{service,timer} /etc/systemd/system/
 #   sudo systemctl daemon-reload && sudo systemctl enable --now power-report.timer

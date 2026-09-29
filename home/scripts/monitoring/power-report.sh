@@ -22,10 +22,10 @@
 #
 # Needs: vcgencmd (libraspberrypi-bin) and membership of group video, or sudo.
 # Pi 4 and earlier have no PMIC ADC; those sections and the forecast are skipped with a note.
-# Manual install (until the build layer ships it, mirroring net-snapshot):
+# Installed by the build (layer/ke-20-avhicfg.yaml, same hook shape as dns-health-check).
+# To try a newer copy on a running appliance before rebuilding:
 #   sudo cp home/scripts/monitoring/power-report.sh /usr/local/bin/ && sudo chmod 0755 /usr/local/bin/power-report.sh
-#   sudo cp etc/systemd/system/power-report.{service,timer} /etc/systemd/system/
-#   sudo systemctl daemon-reload && sudo systemctl enable --now power-report.timer
+#   sudo cp etc/systemd/system/power-report.{service,timer} /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now power-report.timer
 #
 # Rail sum: the four measure_volts rails are independent supplies, so their sum is a
 # checksum for diffing two runs, not a physical total. Real board power comes from the
