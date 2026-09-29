@@ -307,6 +307,9 @@ sudo systemctl status pihole-FTL unbound avahi-daemon systemd-resolved
 sudo systemctl status dns-health-check.timer
 sudo journalctl -u dns-health-check.service -n 100 --no-pager
 dig @127.0.0.1 github.com
+# Hourly monitors (first run 5 min after boot)
+systemctl list-timers 'net-snapshot*' 'power-report*'
+sudo journalctl -u net-snapshot.service -u power-report.service -n 60 --no-pager
 ```
 
 ## Initial Setup

@@ -137,6 +137,8 @@ onto shared boundaries instead of scattering.
 | Timer | Schedule | Purpose |
 | --- | --- | --- |
 | `dns-health-check.timer` | 2 min after boot, then every 23 h (rotating hour) | Full stack health + observability snapshot |
+| `net-snapshot.timer` | 5 min after boot, then hourly | Kernel network counters (`nstat`) + socket summary/listeners (`ss`) for the weekly review |
+| `power-report.timer` | 5 min after boot, then hourly | Throttle flags, PMIC rail power, temperatures, energy forecast; one `trend` line per run |
 | `pihole-gravity.timer` | Sun 03:00 + up to 4 h jitter, `Persistent=true` | Weekly blocklist refresh |
 | `pihole-logflush.timer` | Daily 00:10 + 30 min jitter | Rotates the Pi-hole query log via Pi-hole's own logrotate config |
 
@@ -150,8 +152,8 @@ shortly after). Harmless but wasteful; see
 (preferred: keep the timers, strip the two cron lines after install).
 
 ```bash
-# Inspect all maintenance timers
-systemctl list-timers 'pihole-*' 'dns-*'
+# Inspect all maintenance and monitoring timers
+systemctl list-timers 'pihole-*' 'dns-*' 'net-snapshot*' 'power-report*'
 ```
 
 ## Maintenance Commands
@@ -271,6 +273,8 @@ Notes:
 
 - Pi-hole (v6): `/var/log/pihole/pihole.log` (rotated daily by `pihole-logflush.timer`) and `/var/log/pihole/FTL.log` (rotates at FTL startup, as does `webserver.log`)
 - Health check: `/var/log/dns-health.log` — self-rotates at 256 KiB, one previous generation kept (~512 KiB ceiling); journald holds the primary copy (`journalctl -u dns-health-check`)
+- Network snapshot: `/var/log/net-snapshot.log` — hourly `nstat`/`ss` dump, self-rotates at 512 KiB with one previous generation (`journalctl -u net-snapshot`)
+- Power report: `/var/log/power-report.log` — hourly report plus a `trend ts=… rail_w=… est_w=…` line; self-rotates at 512 KiB with one previous generation, roughly 10 days each (`journalctl -u power-report`). Weekly average: see the awk one-liner in the script header
 - Unbound: `journalctl -u unbound` (file logging disabled: `verbosity: 0`, no `logfile` configured)
 - Avahi: `journalctl -u avahi-daemon`
 - systemd-resolved: `journalctl -u systemd-resolved`

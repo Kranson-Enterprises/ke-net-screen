@@ -20,7 +20,8 @@ Run local checks before tagging:
 
 This validates:
 
-- Bash syntax in critical scripts (ke-net-screen.sh, dns-health-check.sh)
+- Bash syntax in critical scripts (ke-net-screen.sh, dns-health-check.sh, net-snapshot.sh, power-report.sh)
+- Monitoring unit files present for the layer to install (net-snapshot and power-report service + timer)
 - No hardcoded Pi-hole password in layer definitions
 - SSH hardening policy baseline (password and public-key auth both accepted, no root login, no keyboard-interactive, strong ciphers/KEX/MACs; key-only mode is deliberately not enforced — see the commented directives in the policy file)
 - Environment template contract (.env.example contains PIHOLE_PASSWORD)
