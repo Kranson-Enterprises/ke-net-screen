@@ -33,6 +33,26 @@ mmdebstrap:
       install -d -m 0755 "$1/etc/modprobe.d"
       cp "$REPO_ROOT/etc/modprobe.d/ke-appliance-blacklist.conf" "$1/etc/modprobe.d" 2>/dev/null || true
     - |
+      # Mask systemd's TPM 2.0 / PCR measurement units. The Pi 5 has no TPM and
+      # does not boot a measured UKI, so every one of these is already skipped at
+      # boot on ConditionSecurity=measured-uki; masking drops the seven "skipped,
+      # unmet condition" journal lines and guarantees they never start even if a
+      # later systemd relaxes the condition. Masking = symlink to /dev/null in
+      # /etc/systemd/system, which overrides the unit in /usr/lib/systemd/system.
+      # Undo on a device: systemctl unmask <unit>.
+      set -eu
+      install -d -m 0755 "$1/etc/systemd/system"
+      for unit in \
+          systemd-tpm2-setup-early.service \
+          systemd-tpm2-setup.service \
+          systemd-pcrmachine.service \
+          systemd-pcrphase-sysinit.service \
+          systemd-pcrphase.service \
+          systemd-pcrextend.socket \
+          systemd-pcrlock.socket; do
+          ln -sf /dev/null "$1/etc/systemd/system/$unit"
+      done
+    - |
       # Reduce systemd-timesyncd clock-file writes (wear cadence ladder);
       # see comment in the drop-in itself.
       set -eu
