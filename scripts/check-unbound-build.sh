@@ -149,27 +149,43 @@ fi
 hdr "Unbound version in rootfs binary"
 
 ROOTFS_UB="$ROOTFS/usr/sbin/unbound"
+BIN_VER=""
 if [[ -x "$ROOTFS_UB" ]]; then
-  VER_STRING="$(strings "$ROOTFS_UB" 2>/dev/null \
-    | grep -E '^Version [0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
-  if [[ -n "$VER_STRING" ]]; then
-    ok "Version string in rootfs binary: $VER_STRING"
+  # configure embeds PACKAGE_STRING ("unbound X.Y.Z") verbatim; this is what
+  # `unbound -V` prints. Anchoring on it avoids picking up unrelated dotted
+  # triples in the binary (IP literals, OpenSSL, TLS versions).
+  BIN_VER="$(strings "$ROOTFS_UB" 2>/dev/null \
+    | grep -oE '^unbound [0-9]+\.[0-9]+\.[0-9]+' | head -1 | cut -d' ' -f2 || true)"
+  if [[ -n "$BIN_VER" ]]; then
+    ok "Version string in rootfs binary: $BIN_VER"
   else
-    # Fallback: look for the version pattern anywhere
-    VER_STRING="$(strings "$ROOTFS_UB" 2>/dev/null \
-      | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
-    [[ -n "$VER_STRING" ]] && ok "Version found in binary: $VER_STRING" \
-                             || warn "Could not extract version from binary"
+    warn "Could not extract 'unbound X.Y.Z' from rootfs binary"
   fi
 fi
 
-# Also check the source build cache for the version it was built from
+# Also check the source build cache for the version it was built from, and
+# require the two to agree when both are known.
 if [[ -f "$BUILD_CACHE/config.h" ]]; then
   BUILT_VER="$(grep 'PACKAGE_VERSION' "$BUILD_CACHE/config.h" \
     | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"' | head -1)"
   if [[ -n "$BUILT_VER" ]]; then
     ok "Source cache built version: $BUILT_VER"
+    if [[ -n "$BIN_VER" ]]; then
+      if [[ "$BIN_VER" == "$BUILT_VER" ]]; then
+        ok "Rootfs binary version matches source cache"
+      else
+        fail "Rootfs binary reports $BIN_VER but source cache built $BUILT_VER"
+      fi
+    fi
   fi
+fi
+
+# Upstream bumps PACKAGE_VERSION to the next release right after tagging, so a
+# build from master head announces a version that has not been released yet.
+# Report the submodule describe so the announced number can be placed.
+if command -v git >/dev/null 2>&1 && [[ -d "$PROJECT_ROOT/vendors/unbound/.git" || -f "$PROJECT_ROOT/vendors/unbound/.git" ]]; then
+  SUBMOD_DESC="$(git -C "$PROJECT_ROOT/vendors/unbound" describe --tags --always 2>/dev/null || true)"
+  [[ -n "$SUBMOD_DESC" ]] && ok "vendors/unbound at $SUBMOD_DESC"
 fi
 
 # ---------------------------------------------------------------------------
