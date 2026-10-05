@@ -162,13 +162,13 @@ Layer wiring for source-mode support is controlled in `layer/ke-00-layer.yaml` u
 Current default includes `ke-unbsrccfg`:
 
 ```text
-# X-Env-Layer-Requires: systemd-net-min,ke-unbsrccfg,ke-unbcfg,ke-piholecfg,ke-avhicfg
+# X-Env-Layer-Requires: systemd-net-min,ke-unbsrccfg,ke-unbcfg,ke-piholecfg,ke-avhicfg,ke-monitor
 ```
 
 To disable source-artifact install behavior, remove `ke-unbsrccfg` from the list:
 
 ```text
-# X-Env-Layer-Requires: systemd-net-min,ke-unbcfg,ke-piholecfg,ke-avhicfg
+# X-Env-Layer-Requires: systemd-net-min,ke-unbcfg,ke-piholecfg,ke-avhicfg,ke-monitor
 ```
 
 To re-enable it later, add `ke-unbsrccfg` back into `X-Env-Layer-Requires`.
@@ -307,10 +307,27 @@ sudo systemctl status pihole-FTL unbound avahi-daemon systemd-resolved
 sudo systemctl status dns-health-check.timer
 sudo journalctl -u dns-health-check.service -n 100 --no-pager
 dig @127.0.0.1 github.com
-# Hourly monitors (first run 5 min after boot)
+# Hourly monitors (first run 5 min after boot): journald holds one record per run,
+# the full reports are in /var/log/net-snapshot.log and /var/log/power-report.log
 systemctl list-timers 'net-snapshot*' 'power-report*'
-sudo journalctl -u net-snapshot.service -u power-report.service -n 60 --no-pager
+journalctl -u net-snapshot.service -u power-report.service -o cat --no-pager | tail -n 4
 ```
+
+### Collecting Logs from a LAN Host
+
+`home/scripts/network/collect-appliance-logs.sh <appliance-ip>` pulls the journal, the
+Unbound cache dump and a `tar.gz` of the monitor logs with a host-facts snapshot into
+`private/inbox/` and prints a short review. Add `--since-last` for an incremental journal;
+see `--help` for the sudoers line that lets the cache dump run unattended. The image also
+ships the script at `~/scripts/collect-appliance-logs.sh` (the `ke-monitor` layer).
+
+### Bootloader EEPROM
+
+The boot-time `rpi-eeprom-update -s -a` applies critical minimums only, so the bootloader can
+lag the images shipped in the `rpi-eeprom` package by months while reporting "up to date".
+`~/scripts/eeprom-update.sh` shows installed vs latest for the configured channel; `sudo
+eeprom-update.sh --apply` stages the latest and offers a reboot, which flashes it. The daily
+health check prints the gap as an ℹ line.
 
 ## Initial Setup
 
@@ -571,6 +588,7 @@ The ./layer folder utilize META dependencies and variable expansion to feed the 
 ./layer/ke-10-unbcfg     # Variable expansion to configure unbound, requires knlcfg settings
 ./layer/ke-15-piholecfg  # Stages and configures first boot install and configure pi-hole with unbound
 ./layer/ke-20-avhicfg    # Install and secure hardening of mDNS/AppleTalk/Avahi-daemon
+./layer/ke-25-monitor    # Monitoring: dns-health-check, net-snapshot, power-report timers + log collector; requires avhicfg
 ```
 
 #### Image Tuning Highlights

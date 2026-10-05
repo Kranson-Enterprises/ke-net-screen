@@ -12,15 +12,28 @@ bash -n ke-net-screen.sh
 echo "[check] bash syntax: dns-health-check.sh"
 bash -n home/scripts/monitoring/dns-health-check.sh
 
-echo "[check] bash syntax: net-snapshot.sh, power-report.sh"
+echo "[check] bash syntax: net-snapshot.sh, power-report.sh, collect-appliance-logs.sh, eeprom-update.sh"
 bash -n home/scripts/monitoring/net-snapshot.sh
 bash -n home/scripts/monitoring/power-report.sh
+bash -n home/scripts/network/collect-appliance-logs.sh
+bash -n home/scripts/firmware/eeprom-update.sh
 
-# The ke-avhicfg layer installs these from the repository; a missing file fails the build late.
+# The ke-monitor layer installs these from the repository; a missing file fails the build late.
 echo "[check] monitoring units present"
 for unit in net-snapshot.service net-snapshot.timer power-report.service power-report.timer; do
   test -f "etc/systemd/system/$unit" || { echo "[fail] missing etc/systemd/system/$unit"; exit 1; }
 done
+
+# The monitors must run in summary mode so journald gets one record per run (full report in /var/log).
+echo "[check] monitor units use --journal-summary"
+grep -q -- "--journal-summary" etc/systemd/system/net-snapshot.service
+grep -q -- "--journal-summary" etc/systemd/system/power-report.service
+
+# The monitor layer must exist and be pulled in by the root layer.
+echo "[check] ke-monitor layer wired in"
+test -f layer/ke-25-monitor.yaml
+grep -q "^# X-Env-Layer-Requires: .*ke-monitor" layer/ke-00-layer.yaml
+test -f home/scripts/network/collect-appliance-logs.sh
 
 # Prevent shipping with an accidental hardcoded default password.
 echo "[check] hardcoded Pi-hole password"
