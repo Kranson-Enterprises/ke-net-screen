@@ -13,16 +13,18 @@
 #   ./power-report.sh --samples 30    # average the PMIC power over 30 one-second reads before forecasting
 #   ./power-report.sh --rate 0.17     # add cost lines at 0.17 per kWh (your tariff, any currency)
 #   ./power-report.sh --wall 4.2      # forecast from a plug-meter reading in watts instead of the estimate
+#   ./power-report.sh --journal-summary  # body to the log file only; print just the "trend" record
+#                                        # (the service unit runs this way, so journald gets one line per run)
 #   ./power-report.sh --help
 #
-# Log: /var/log/power-report.log (self-rotates at 512 KiB, one previous generation kept;
-#      journald holds the primary copy via the service unit). Runs by a user who cannot
+# Log: /var/log/power-report.log is the full record; self-rotates at 2 MiB (about a month of
+#      hourly default reports) with one previous generation kept. Runs by a user who cannot
 #      write /var/log print to the terminal only. Weekly average from the trend lines:
 #        grep '^trend ' /var/log/power-report.log | awk '{for(i=2;i<=NF;i++){split($i,kv,"="); if(kv[1]=="rail_w") s+=kv[2]; if(kv[1]=="est_w") e+=kv[2]}; n++} END{printf "runs=%d avg rail=%.3f W avg est=%.3f W  => %.2f kWh/yr\n", n, s/n, e/n, e/n*8.76}'
 #
 # Needs: vcgencmd (libraspberrypi-bin) and membership of group video, or sudo.
 # Pi 4 and earlier have no PMIC ADC; those sections and the forecast are skipped with a note.
-# Installed by the build (layer/ke-20-avhicfg.yaml, same hook shape as dns-health-check).
+# Installed by the build (layer/ke-25-monitor.yaml, same hook shape as dns-health-check).
 # To try a newer copy on a running appliance before rebuilding:
 #   sudo cp home/scripts/monitoring/power-report.sh /usr/local/bin/ && sudo chmod 0755 /usr/local/bin/power-report.sh
 #   sudo cp etc/systemd/system/power-report.{service,timer} /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now power-report.timer
@@ -37,7 +39,7 @@
 
 set -euo pipefail
 
-FULL=0; SAMPLES=1; RATE=""; WALL=""; EFFICIENCY=0.85
+FULL=0; SAMPLES=1; RATE=""; WALL=""; EFFICIENCY=0.85; JOURNAL_SUMMARY=0
 is_num() { [[ "$1" =~ ^[0-9]+([.][0-9]+)?$ ]]; }
 while (( $# )); do
     case "$1" in
@@ -48,8 +50,9 @@ while (( $# )); do
                           is_num "$RATE" || { echo "power-report.sh: --rate needs a number (cost per kWh)" >&2; exit 2; } ;;
         -w|--wall)        WALL=${2:-}; shift
                           is_num "$WALL" || { echo "power-report.sh: --wall needs a number (watts from a plug meter)" >&2; exit 2; } ;;
+        -j|--journal-summary) JOURNAL_SUMMARY=1 ;;
         -h|--help)
-            sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'
             exit 0 ;;
         *)
             echo "power-report.sh: unknown argument '$1' (see --help)" >&2
@@ -63,9 +66,9 @@ if ! command -v vcgencmd >/dev/null 2>&1; then
     exit 1
 fi
 
-LOG_FILE="/var/log/power-report.log"
-# Self-rotate: cap the local copy (journald holds the primary via the service unit).
-LOG_MAX_BYTES=524288   # 512 KiB (~10 days of hourly default reports), then keep one previous generation
+LOG_FILE="${LOG_FILE:-/var/log/power-report.log}"   # env override is for tests only
+# Self-rotate: the file is the full record; cap it and keep one previous generation.
+LOG_MAX_BYTES=2097152   # 2 MiB ≈ a month of hourly default reports per generation
 if [[ -f "$LOG_FILE" ]] && (( $(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0) >= LOG_MAX_BYTES )); then
     mv -f "$LOG_FILE" "${LOG_FILE}.1" 2>/dev/null || true
 fi
@@ -73,10 +76,15 @@ fi
 if ! ( : >> "$LOG_FILE" ) 2>/dev/null; then
     echo "power-report.sh: $LOG_FILE not writable, output to terminal only" >&2
     LOG_FILE=/dev/null
+    JOURNAL_SUMMARY=0      # nowhere else for the body to go
 fi
 TS=$(date '+%Y-%m-%d %H:%M:%S')
 
-emit() { echo "$*" | tee -a "$LOG_FILE" >/dev/null; echo "$*"; }
+# Output plumbing. body: the report — file + stdout normally, file only with
+# --journal-summary. record: the one-line trend — always file + stdout.
+if (( JOURNAL_SUMMARY )); then body() { cat >> "$LOG_FILE"; }; else body() { tee -a "$LOG_FILE"; }; fi
+emit()    { echo "$*" | body; }
+record()  { echo "$*" | tee -a "$LOG_FILE"; }
 section() { emit; emit "--- $* ---"; }
 
 # vcgencmd wrapper: prints "n/a" instead of aborting under set -e when a sub-command is
@@ -107,6 +115,32 @@ RAIL_W=""; EXT5V=""
 if [[ "$PMIC" != "n/a" && -n "$PMIC" ]]; then
     read -r RAIL_W EXT5V < <(pmic_totals <<<"$PMIC")
 fi
+# --samples N: further one-second PMIC reads, averaged here in the main shell so the
+# summary section and the trend record share the same figures.
+RAIL_AVG=$RAIL_W; EXT5V_AVG=$EXT5V; MIN_W=$RAIL_W; MAX_W=$RAIL_W
+if [[ -n "$RAIL_W" ]] && (( SAMPLES > 1 )); then
+    sum_w=$RAIL_W; sum_v=$EXT5V
+    for (( i = 2; i <= SAMPLES; i++ )); do
+        sleep 1
+        read -r w v < <(vc pmic_read_adc | pmic_totals)
+        sum_w=$(awk -v a="$sum_w" -v b="$w" 'BEGIN { printf "%.4f", a + b }')
+        sum_v=$(awk -v a="$sum_v" -v b="$v" 'BEGIN { printf "%.4f", a + b }')
+        MIN_W=$(awk -v a="$MIN_W" -v b="$w" 'BEGIN { print (b < a ? b : a) }')
+        MAX_W=$(awk -v a="$MAX_W" -v b="$w" 'BEGIN { print (b > a ? b : a) }')
+    done
+    RAIL_AVG=$(awk -v s="$sum_w" -v n="$SAMPLES" 'BEGIN { printf "%.4f", s / n }')
+    EXT5V_AVG=$(awk -v s="$sum_v" -v n="$SAMPLES" 'BEGIN { printf "%.4f", s / n }')
+fi
+EST_W=""
+if [[ -n "$RAIL_AVG" ]]; then
+    EST_W=$(awk -v w="$RAIL_AVG" -v e="$EFFICIENCY" 'BEGIN { printf "%.3f", w / e }')
+fi
+# One grep-able record per run (see header for the weekly-average awk). Same field order
+# as every earlier release, so old and new logs average together.
+TREND=$(printf 'trend ts=%s rail_w=%s est_w=%s wall_w=%s ext5v=%s samples=%d arm_mhz=%s soc_c=%s throttled=%s' \
+    "${TS// /T}" "${RAIL_AVG:--}" "${EST_W:--}" "${WALL:--}" "${EXT5V_AVG:--}" "$SAMPLES" "${ARM_MHZ:--}" \
+    "$( [[ "$SOC_TEMP" == temp=* ]] && { t=${SOC_TEMP#temp=}; echo "${t%\'C}"; } || echo '-' )" \
+    "$( [[ "$RAW" == throttled=* ]] && echo "${RAW#throttled=}" || echo '-' )")
 
 # ---------------------------------------------------------------- throttle flags
 report_throttled() {
@@ -266,35 +300,22 @@ report_kernel() {
 
 # ---------------------------------------------------------------- summary + forecast
 report_summary() {
-    local rail_w=$RAIL_W ext5v=$EXT5V est_w="" basis_w="" basis="" sum_w sum_v min_w max_w w v i
-    if [[ -z "$rail_w" ]]; then
+    local basis_w="" basis=""
+    if [[ -z "$RAIL_W" ]]; then
         echo "  no PMIC ADC on this board: nothing to forecast from (use --wall <watts> with a plug meter)"
-    elif (( SAMPLES > 1 )); then
-        # Average further one-second reads so the forecast rests on more than one instant.
-        sum_w=$rail_w; sum_v=$ext5v; min_w=$rail_w; max_w=$rail_w
-        for (( i = 2; i <= SAMPLES; i++ )); do
-            sleep 1
-            read -r w v < <(vc pmic_read_adc | pmic_totals)
-            sum_w=$(awk -v a="$sum_w" -v b="$w" 'BEGIN { printf "%.4f", a + b }')
-            sum_v=$(awk -v a="$sum_v" -v b="$v" 'BEGIN { printf "%.4f", a + b }')
-            min_w=$(awk -v a="$min_w" -v b="$w" 'BEGIN { print (b < a ? b : a) }')
-            max_w=$(awk -v a="$max_w" -v b="$w" 'BEGIN { print (b > a ? b : a) }')
-        done
-        rail_w=$(awk -v s="$sum_w" -v n="$SAMPLES" 'BEGIN { printf "%.4f", s / n }')
-        ext5v=$(awk -v s="$sum_v" -v n="$SAMPLES" 'BEGIN { printf "%.4f", s / n }')
-        printf '  sampling              %d reads over %d s: PMIC rail power min %.3f W, max %.3f W\n' "$SAMPLES" "$((SAMPLES - 1))" "$min_w" "$max_w"
-    fi
-    if [[ -n "$rail_w" ]]; then
-        est_w=$(awk -v w="$rail_w" -v e="$EFFICIENCY" 'BEGIN { printf "%.3f", w / e }')
-        printf '  5 V input             %.3f V\n' "$ext5v"
-        printf '  PMIC rail power       %.3f W   measured (SoC / RAM / IO rails)\n' "$rail_w"
-        printf '  estimated board input %.3f W   rail power / %s buck efficiency; excludes fan, NVMe, USB (floor)\n' "$est_w" "$EFFICIENCY"
+    else
+        if (( SAMPLES > 1 )); then
+            printf '  sampling              %d reads over %d s: PMIC rail power min %.3f W, max %.3f W\n' "$SAMPLES" "$((SAMPLES - 1))" "$MIN_W" "$MAX_W"
+        fi
+        printf '  5 V input             %.3f V\n' "$EXT5V_AVG"
+        printf '  PMIC rail power       %.3f W   measured (SoC / RAM / IO rails)\n' "$RAIL_AVG"
+        printf '  estimated board input %.3f W   rail power / %s buck efficiency; excludes fan, NVMe, USB (floor)\n' "$EST_W" "$EFFICIENCY"
     fi
     if [[ -n "$WALL" ]]; then
         basis_w=$WALL; basis="plug meter, --wall"
         printf '  wall (plug meter)     %.3f W   supplied via --wall\n' "$WALL"
-    elif [[ -n "$rail_w" ]]; then
-        basis_w=$est_w; basis="estimated board input"
+    elif [[ -n "$RAIL_W" ]]; then
+        basis_w=$EST_W; basis="estimated board input"
     fi
     if [[ -n "$basis_w" ]]; then
         echo
@@ -308,27 +329,24 @@ report_summary() {
                 printf "    at %s per kWh: %.4f per day, %.2f per 30 days, %.2f per year\n",
                        rate, w * 24 / 1000 * rate, w * 24 * 30 / 1000 * rate, w * 8760 / 1000 * rate
             } }'
-        if [[ -n "$rail_w" && -z "$WALL" ]]; then
-            awk -v w="$rail_w" 'BEGIN { printf "  (measured rails alone: %.2f Wh/h, %.2f Wh/day, %.2f kWh/year)\n", w, w * 24, w * 8760 / 1000 }'
+        if [[ -n "$RAIL_W" && -z "$WALL" ]]; then
+            awk -v w="$RAIL_AVG" 'BEGIN { printf "  (measured rails alone: %.2f Wh/h, %.2f Wh/day, %.2f kWh/year)\n", w, w * 24, w * 8760 / 1000 }'
             echo "  (a plug meter reading passed as --wall <watts> replaces the estimate)"
         fi
     fi
-    # One grep-able record per run for averaging over the log (see header for the awk).
-    echo
-    printf 'trend ts=%s rail_w=%s est_w=%s wall_w=%s ext5v=%s samples=%d arm_mhz=%s soc_c=%s throttled=%s\n' \
-        "${TS// /T}" "${rail_w:--}" "${est_w:--}" "${WALL:--}" "${ext5v:--}" "$SAMPLES" "${ARM_MHZ:--}" \
-        "$( [[ "$SOC_TEMP" == temp=* ]] && { t=${SOC_TEMP#temp=}; echo "${t%\'C}"; } || echo '-' )" \
-        "$( [[ "$RAW" == throttled=* ]] && echo "${RAW#throttled=}" || echo '-' )"
+    return 0
 }
 
 emit "===== power-report $TS — $MODEL ($( ((FULL)) && echo 'full' || echo 'default' )) ====="
 
-section "vcgencmd get_throttled";                       report_throttled | tee -a "$LOG_FILE"
-section "vcgencmd measure_volts (SoC rails)";           report_rails     | tee -a "$LOG_FILE"
-section "PMIC ADC (vcgencmd pmic_read_adc)";            report_pmic      | tee -a "$LOG_FILE"
-section "Supply contract (firmware: /proc/device-tree/chosen/power)"; report_supply | tee -a "$LOG_FILE"
-section "Kernel view (sysfs hwmon) and temperatures";   report_kernel    | tee -a "$LOG_FILE"
-section "Power summary and energy forecast";            report_summary   | tee -a "$LOG_FILE"
+section "vcgencmd get_throttled";                       report_throttled | body
+section "vcgencmd measure_volts (SoC rails)";           report_rails     | body
+section "PMIC ADC (vcgencmd pmic_read_adc)";            report_pmic      | body
+section "Supply contract (firmware: /proc/device-tree/chosen/power)"; report_supply | body
+section "Kernel view (sysfs hwmon) and temperatures";   report_kernel    | body
+section "Power summary and energy forecast";            report_summary   | body
 
+emit
+record "$TREND"        # the one line journald sees under --journal-summary
 emit
 emit "===== end power-report ====="
