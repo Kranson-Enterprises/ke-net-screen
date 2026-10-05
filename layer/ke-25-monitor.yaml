@@ -1,0 +1,83 @@
+# METABEGIN
+# X-Env-Layer-Name: ke-monitor
+# X-Env-Layer-Desc: Appliance monitoring - health check, net snapshot, power report timers, log collector
+# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Category: general
+# X-Env-Layer-Requires: ke-avhicfg
+# METAEND
+# Everything observability-related lives here so the DNS/mDNS layers stay about their
+# services. Scripts come from home/scripts/, units from etc/systemd/system/ (single source
+# of truth; the installed copies are byte-identical to the repository). Each timer is
+# enabled by linking it into timers.target.wants, which is what `systemctl enable` does.
+mmdebstrap:
+  suite: trixie
+  variant: minbase
+  packages:
+    # ss/nstat for net-snapshot.sh and the health check's NTP-listener probe. The base
+    # rootfs has no iproute2 (systemd-networkd needs none); on the appliance it would only
+    # appear because Pi-hole's first-boot installer pulls it in. Ship it explicitly so the
+    # monitors do not depend on that install having run.
+    - iproute2
+  customize-hooks:
+    - |
+      # Install DNS health checker and run it once after boot, then daily.
+      REPO_ROOT=${SRCROOT:?SRCROOT is required}
+      install -d -m 0755 "$1/usr/local/bin"
+      cp -a "$REPO_ROOT/home/scripts/monitoring/dns-health-check.sh" "$1/usr/local/bin/dns-health-check.sh" 2>/dev/null || true
+      chmod 0755 "$1/usr/local/bin/dns-health-check.sh"
+
+      install -d -m 0755 "$1/etc/systemd/system"
+      cat > "$1/etc/systemd/system/dns-health-check.service" <<'EOSVC'
+      [Unit]
+      Description=DNS stack health check
+      Wants=network-online.target
+      After=network-online.target run-pihole-firstboot.service pihole-FTL.service unbound.service avahi-daemon.service systemd-resolved.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/dns-health-check.sh
+
+      [Install]
+      WantedBy=multi-user.target
+      EOSVC
+
+      cat > "$1/etc/systemd/system/dns-health-check.timer" <<'EOTMR'
+      [Unit]
+      Description=Run DNS stack health checks daily
+
+      [Timer]
+      OnBootSec=2min
+      OnUnitActiveSec=23h
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+      EOTMR
+
+      install -d -m 0755 "$1/etc/systemd/system/timers.target.wants"
+      ln -sf "/etc/systemd/system/dns-health-check.timer" "$1/etc/systemd/system/timers.target.wants/dns-health-check.timer"
+    - |
+      # Install the kernel network-stats snapshot (nstat/ss) and run it hourly, same shape
+      # as dns-health-check. Units come from the repository (single source of truth).
+      REPO_ROOT=${SRCROOT:?SRCROOT is required}
+      install -d -m 0755 "$1/usr/local/bin" "$1/etc/systemd/system" "$1/etc/systemd/system/timers.target.wants"
+      install -m 0755 "$REPO_ROOT/home/scripts/monitoring/net-snapshot.sh" "$1/usr/local/bin/net-snapshot.sh"
+      install -m 0644 "$REPO_ROOT/etc/systemd/system/net-snapshot.service" "$1/etc/systemd/system/net-snapshot.service"
+      install -m 0644 "$REPO_ROOT/etc/systemd/system/net-snapshot.timer" "$1/etc/systemd/system/net-snapshot.timer"
+      ln -sf "/etc/systemd/system/net-snapshot.timer" "$1/etc/systemd/system/timers.target.wants/net-snapshot.timer"
+    - |
+      # Install the power / thermal report (vcgencmd from raspi-utils-core, PMIC ADC) and run
+      # it hourly, same shape as dns-health-check. Runs as root, so no group video needed.
+      REPO_ROOT=${SRCROOT:?SRCROOT is required}
+      install -d -m 0755 "$1/usr/local/bin" "$1/etc/systemd/system" "$1/etc/systemd/system/timers.target.wants"
+      install -m 0755 "$REPO_ROOT/home/scripts/monitoring/power-report.sh" "$1/usr/local/bin/power-report.sh"
+      install -m 0644 "$REPO_ROOT/etc/systemd/system/power-report.service" "$1/etc/systemd/system/power-report.service"
+      install -m 0644 "$REPO_ROOT/etc/systemd/system/power-report.timer" "$1/etc/systemd/system/power-report.timer"
+      ln -sf "/etc/systemd/system/power-report.timer" "$1/etc/systemd/system/timers.target.wants/power-report.timer"
+    - |
+      # Install the LAN-side log collector next to the other helpers so it is at hand on the
+      # appliance too (~/scripts -> /usr/local/bin). It is normally run from another host
+      # against this one; see its header for usage, the sudoers line and the cron example.
+      REPO_ROOT=${SRCROOT:?SRCROOT is required}
+      install -d -m 0755 "$1/usr/local/bin"
+      install -m 0755 "$REPO_ROOT/home/scripts/network/collect-appliance-logs.sh" "$1/usr/local/bin/collect-appliance-logs.sh"
