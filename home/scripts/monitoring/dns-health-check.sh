@@ -222,6 +222,28 @@ check_throttle_state() {
     fi
 }
 
+check_bootloader_eeprom() {
+    # The boot-time rpi-eeprom-update -s -a applies critical minimums only; show the gap to
+    # the configured channel's latest so an old bootloader is visible (eeprom-update.sh --apply).
+    command -v rpi-eeprom-update >/dev/null 2>&1 || return 0
+    local out cur latest chan cur_d latest_d
+    out=$(rpi-eeprom-update 2>/dev/null || true)
+    cur=$(sed -n 's/.*CURRENT:.*(\([0-9]\+\)).*/\1/p' <<<"$out" | head -1)
+    latest=$(sed -n 's/.*LATEST:.*(\([0-9]\+\)).*/\1/p' <<<"$out" | head -1)
+    chan=$(sed -n 's/.*RELEASE: \([A-Za-z0-9_-]\+\).*/\1/p' <<<"$out" | head -1)
+    if [[ -z "$cur" || -z "$latest" ]]; then
+        log_message "ℹ Bootloader EEPROM status unavailable"
+        return 0
+    fi
+    cur_d=$(date -u -d "@$cur" +%F); latest_d=$(date -u -d "@$latest" +%F)
+    if (( cur >= latest )); then
+        log_message "✓ Bootloader EEPROM $cur_d matches the ${chan:-?} channel"
+    else
+        log_message "ℹ Bootloader EEPROM $cur_d; channel ${chan:-?} offers $latest_d (stage with: sudo eeprom-update.sh --apply, then reboot)"
+    fi
+    return 0
+}
+
 main() {
     local failures=0
 
@@ -248,6 +270,7 @@ main() {
     check_ftl_layer_stats
     check_ntp_health
     check_throttle_state
+    check_bootloader_eeprom
 
     # Check local mDNS
     if ! command -v avahi-resolve-host-name >/dev/null 2>&1; then

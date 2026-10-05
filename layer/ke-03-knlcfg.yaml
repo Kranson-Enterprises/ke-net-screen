@@ -9,6 +9,7 @@ mmdebstrap:
   variant: minbase
   packages:
       - locales
+      - rpi-eeprom      # bootloader images + rpi-eeprom-update, used by eeprom-update.sh
   customize-hooks:
     - |
       # Set locale to en_US.UTF-8
@@ -45,3 +46,11 @@ mmdebstrap:
       REPO_ROOT=${SRCROOT:?SRCROOT is required}
       cp "$REPO_ROOT/boot/firmware/config.txt" "$1/boot/firmware" 2>/dev/null || true
       cp "$REPO_ROOT/boot/firmware/cmdline.txt" "$1/boot/firmware" 2>/dev/null || true
+    - |
+      # Bootloader EEPROM helper (~/scripts/eeprom-update.sh): shows the installed bootloader
+      # against the channel's latest and stages an update only on request. The boot-time
+      # rpi-eeprom-update -s -a applies critical minimums only, so this is how the appliance
+      # catches up with what the shipped rpi-eeprom package already carries.
+      REPO_ROOT=${SRCROOT:?SRCROOT is required}
+      install -d -m 0755 "$1/usr/local/bin"
+      install -m 0755 "$REPO_ROOT/home/scripts/firmware/eeprom-update.sh" "$1/usr/local/bin/eeprom-update.sh"
