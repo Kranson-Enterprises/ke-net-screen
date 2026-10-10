@@ -427,6 +427,19 @@ if [[ $UNBOUND_SOURCE -eq 1 ]]; then
   bash "$SCRIPT_DIR/scripts/patch-sbom-source-unbound.sh" "$OUTDIR"
 fi
 
+# First boot cannot recover from a missing Pi-hole installer: verify it landed in the rootfs
+# (the ke-piholecfg setup hook copies it from vendors/pi-hole). Caught on 2026-10-09 when a
+# split hook lost REPO_ROOT and the image shipped without it.
+shopt -s nullglob
+installer_candidates=("$OUTDIR"/chroot-*/filesystem/usr/local/src/pihole-installer/basic-install.sh)
+shopt -u nullglob
+if [[ -z "${installer_candidates[0]:-}" ]]; then
+  echo "ERROR: Pi-hole installer missing from the image rootfs (usr/local/src/pihole-installer/basic-install.sh)." >&2
+  echo "       First boot would fail with exit 127. Check the ke-piholecfg setup hooks in the build log." >&2
+  exit 1
+fi
+echo "[pihole] Verified: first-boot installer present in rootfs at ${installer_candidates[0]}"
+
 # sudo rpi-imager --cli "$OUTDIR/image-deb13-arm64-splash/deb13-arm64-splash.img" /dev/mmcblk0
 
 # sudo rpi-imager --cli --disable-verify --disable-eject "$OUTDIR/image-deb13-arm64-splash/deb13-arm64-splash.img" /dev/mmcblk0
