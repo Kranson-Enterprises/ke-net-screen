@@ -84,7 +84,7 @@ done
 cnt() { grep -c -E "$1" "$2" 2>/dev/null || true; }   # grep -c prints 0 and exits 1 on no match
 review_journal() {
     local j=$1
-    echo "  journal: boots=$(cnt 'Booting Linux' "$j") unit-failures=$(cnt 'Failed with result' "$j") under-voltage/throttle=$(cnt 'kernel: .*([Uu]nder-voltage|[Tt]hrottl)' "$j") health ✗=$(cnt '✗' "$j") ⚠=$(cnt '⚠' "$j") ssh password-logins=$(cnt 'Accepted password' "$j") failed-passwords=$(cnt 'Failed password' "$j")"
+    echo "  journal: boots=$(cnt 'Booting Linux' "$j") unit-failures=$(cnt 'Failed with result' "$j") under-voltage/throttle=$(cnt 'kernel: .*([Uu]nder-voltage|[Tt]hrottl)' "$j") health ✗=$(cnt 'dns-health-check\.sh\[[0-9]+\]: .*✗' "$j") ⚠=$(cnt 'dns-health-check\.sh\[[0-9]+\]: .*⚠' "$j") ssh password-logins=$(cnt 'Accepted password' "$j") failed-passwords=$(cnt 'Failed password' "$j")"
     # Optional: unbound periodic statistics (statistics-interval). Per-interval counters unless
     # statistics-cumulative is on; one block per thread per interval.
     local nblk; nblk=$(cnt 'server stats for thread [0-9]+: [0-9]+ queries' "$j")
