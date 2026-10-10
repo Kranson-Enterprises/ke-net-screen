@@ -23,7 +23,10 @@
 #       logs/           /var/log/dns-health.log*, net-snapshot.log*, power-report.log*
 #                       (+ /var/log/pihole/FTL.log and webserver.log with --with-pihole-logs)
 # then prints a short review: failed units, health-check ⚠/✗, under-voltage, SSH password
-# logins, the last health verdict, the last power "trend" and net "snapshot" records.
+# logins, the last health verdict, the last power "trend" and net "snapshot" records, and —
+# only when the appliance has them switched on — unbound's periodic statistics
+# (`unbound-control set_option statistics-interval: 3600`) and DNSSEC validation failures
+# (`set_option val-log-level: 1`). Absent lines produce no output, so the review stays short.
 #
 # Options:
 #   --dest DIR            where to write (see above)
@@ -32,6 +35,7 @@
 #   --no-package          skip the tar.gz
 #   --with-pihole-logs    add /var/log/pihole/FTL.log and webserver.log to the package
 #   --keep-staging        leave the staging directory behind (debugging)
+#   --review-journal FILE re-run only the journal review on an already collected journal (no SSH)
 #
 # Access: run as YOUR normal user, never under sudo (ssh would then log in as root, which the
 #   appliance refuses). One SSH connection is shared. The journal is readable by members of
@@ -53,10 +57,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-DEST=""; SINCE_LAST=0; DO_DUMP=1; DO_PACKAGE=1; PIHOLE_LOGS=0; KEEP=0; TARGET=""
+DEST=""; SINCE_LAST=0; DO_DUMP=1; DO_PACKAGE=1; PIHOLE_LOGS=0; KEEP=0; TARGET=""; REVIEW_ONLY=""
 WARNINGS=()
 
-usage() { sed -n '2,50p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,54p' "$0" | sed 's/^# \{0,1\}//'; }
 die()   { echo "collect-appliance-logs.sh: $*" >&2; exit 1; }
 note()  { printf '==> %s\n' "$*"; }
 warn()  { printf '!!  %s\n' "$*" >&2; WARNINGS+=("$*"); }
@@ -69,12 +73,50 @@ while (( $# )); do
         --no-package)       DO_PACKAGE=0 ;;
         --with-pihole-logs) PIHOLE_LOGS=1 ;;
         --keep-staging)     KEEP=1 ;;
+        --review-journal)   REVIEW_ONLY=${2:?--review-journal needs a file}; shift ;;
         -h|--help)          usage; exit 0 ;;
         -*)                 die "unknown option '$1' (see --help)" ;;
         *)                  [[ -z "$TARGET" ]] || die "one target only (got '$TARGET' and '$1')"; TARGET=$1 ;;
     esac
     shift
 done
+# ---------------------------------------------------------------- journal review (shared)
+cnt() { grep -c -E "$1" "$2" 2>/dev/null || true; }   # grep -c prints 0 and exits 1 on no match
+review_journal() {
+    local j=$1
+    echo "  journal: boots=$(cnt 'Booting Linux' "$j") unit-failures=$(cnt 'Failed with result' "$j") under-voltage/throttle=$(cnt 'kernel: .*([Uu]nder-voltage|[Tt]hrottl)' "$j") health ✗=$(cnt '✗' "$j") ⚠=$(cnt '⚠' "$j") ssh password-logins=$(cnt 'Accepted password' "$j") failed-passwords=$(cnt 'Failed password' "$j")"
+    # Optional: unbound periodic statistics (statistics-interval). Per-interval counters unless
+    # statistics-cumulative is on; one block per thread per interval.
+    local nblk; nblk=$(cnt 'server stats for thread [0-9]+: [0-9]+ queries' "$j")
+    if (( nblk )); then
+        grep -oE 'server stats for thread [0-9]+: [0-9]+ queries, [0-9]+ answers from cache, [0-9]+ recursions, [0-9]+ prefetch, [0-9]+ rejected by ip ratelimiting' "$j" \
+        | awk -v n="$nblk" '{q+=$6; c+=$8; r+=$12; p+=$14; rl+=$16} END{printf "  unbound stats: %d interval blocks; queries=%d cache-answers=%d (%.0f%%) recursions=%d prefetch=%d ratelimited=%d\n", n, q, c, (q?100*c/q:0), r, p, rl}'
+        local med; med=$(grep -oE 'median\[50%\]=[0-9.]+' "$j" | tail -1 | cut -d= -f2 || true)
+        local avg; avg=$(grep -oE 'average recursion processing time [0-9.]+' "$j" | tail -1 | awk '{print $NF}' || true)
+        [[ -n "$med$avg" ]] && echo "  unbound stats: last interval recursion time avg=${avg:-?}s median=${med:-?}s"
+        local rq; rq=$(grep -oE 'requestlist max [0-9]+ avg [0-9.]+ exceeded [0-9]+ jostled [0-9]+' "$j" | awk 'NR>0{if($3>m)m=$3; e+=$7; jo+=$9} END{if(NR) printf "max=%d exceeded=%d jostled=%d", m, e, jo}' || true)
+        [[ -n "$rq" ]] && echo "  unbound stats: requestlist $rq (exceeded/jostled >0 = overload)"
+        local unw; unw=$(grep -oE 'unwanted replies[^,]*[0-9]+' "$j" | tail -1 || true); [[ -n "$unw" ]] && echo "  unbound stats: $unw"
+    fi
+    # Optional: DNSSEC validation failures (val-log-level >= 1): "validation failure <name type class>"
+    local nval; nval=$(cnt 'validation failure <' "$j")
+    if (( nval )); then
+        echo "  dnssec: $nval validation failure(s); top names:"
+        grep -oE 'validation failure <[^>]+>' "$j" | sed -E 's/validation failure <([^ ]+) ([^ ]+) [^>]+>/\1 \2/' | sort | uniq -c | sort -rn | head -5 | awk '{printf "    %4d  %s %s\n", $1, $2, $3}'
+    fi
+    # Optional: unbound SERVFAIL reasons (log-servfail) share the "validation failure" prefix at
+    # val-log-level 2; other servfail lines look like "SERVFAIL <name type class>: reason"
+    local nsf; nsf=$(cnt 'SERVFAIL <' "$j")
+    (( nsf )) && echo "  unbound servfail: $nsf logged (top: $(grep -oE 'SERVFAIL <[^>]+>: .{0,60}' "$j" | sed -E 's/SERVFAIL <[^>]+>: //' | sort | uniq -c | sort -rn | head -1 | sed -E 's/^ *//'))"
+    return 0
+}
+if [[ -n "$REVIEW_ONLY" ]]; then
+    [[ -r "$REVIEW_ONLY" ]] || die "cannot read $REVIEW_ONLY"
+    echo "===== journal review of $REVIEW_ONLY ====="
+    review_journal "$REVIEW_ONLY"
+    exit 0
+fi
+
 [[ -n "$TARGET" ]] || die "target required, e.g. 192.168.0.53 or admin@ke-localdns (see --help)"
 if (( EUID == 0 )) && [[ "$TARGET" != *@* ]]; then
     die "running as root: ssh would log in as root@$TARGET, which the appliance refuses (PermitRootLogin no). Run this as your normal user${SUDO_USER:+ ($SUDO_USER)}, or give user@host."
@@ -245,7 +287,6 @@ fi
 
 # ---------------------------------------------------------------- review
 HI="$STAGE/pkg/host-info.txt"; LOGS="$STAGE/pkg/logs"
-cnt() { grep -c -E "$1" "$2" 2>/dev/null || true; }   # grep -c prints 0 and exits 1 on no match
 echo
 echo "===== $RHOST review ($STAMP) ====="
 if [[ -f "$HI" ]]; then
@@ -256,9 +297,7 @@ if [[ -f "$HI" ]]; then
     failed=$(sed -n '/^--- failed units ---/,/^--- timers/p' "$HI" | sed '1d;$d' | grep -c . || true)
     echo "  failed units: $failed"
 fi
-if [[ -n "$JOURNAL" ]]; then
-    echo "  journal: boots=$(cnt 'Booting Linux' "$JOURNAL") unit-failures=$(cnt 'Failed with result' "$JOURNAL") under-voltage/throttle=$(cnt 'under-voltage|throttl' "$JOURNAL") health ✗=$(cnt '✗' "$JOURNAL") ⚠=$(cnt '⚠' "$JOURNAL") ssh password-logins=$(cnt 'Accepted password' "$JOURNAL") failed-passwords=$(cnt 'Failed password' "$JOURNAL")"
-fi
+if [[ -n "$JOURNAL" ]]; then review_journal "$JOURNAL"; fi
 if [[ -f "$LOGS/dns-health.log" ]]; then
     echo "  health: $(grep -E 'DNS health check completed' "$LOGS/dns-health.log" | tail -1)"
     grep -E '✗|⚠' "$LOGS/dns-health.log" | tail -5 | sed 's/^/    /' || true
