@@ -179,6 +179,8 @@ if [[ -f "$ENV_FILE" ]]; then
   set -a
   # shellcheck disable=SC1090
   source "$ENV_FILE"
+  # Optional keys: an unset placeholder must still expand (to empty) in the config.
+  export PIHOLE_REGEX_DENY="${PIHOLE_REGEX_DENY:-}"
   set +a
 fi
 

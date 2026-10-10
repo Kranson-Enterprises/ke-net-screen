@@ -12,6 +12,16 @@
 #
 # X-Env-VarOptional: IGconf_device_user1pass,LOG_LEVEL,IGconf_ke_pihole_password
 # X-Env-VarOptional-Valid: string,string,string
+#
+# X-Env-Var-pihole_regex_deny:
+# X-Env-Var-pihole_regex_deny-Desc: Semicolon-separated Pi-hole regex deny entries
+#  imported into gravity.db at first boot (ke-piholecfg). Example: ^wpad\. stops
+#  Web Proxy Auto-Discovery lookups leaving the LAN. Empty (the default) imports
+#  nothing. Set from .env as PIHOLE_REGEX_DENY via config/ke-net-screen.yaml. The
+#  appliance helper wpad-block.sh toggles the WPAD entry at run time.
+# X-Env-Var-pihole_regex_deny-Required: n
+# X-Env-Var-pihole_regex_deny-Valid: string-or-empty
+# X-Env-Var-pihole_regex_deny-Set: y
 # METAEND
 mmdebstrap:
   suite: trixie

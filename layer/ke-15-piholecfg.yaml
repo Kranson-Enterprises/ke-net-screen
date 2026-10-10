@@ -26,11 +26,23 @@ mmdebstrap:
       else
         echo "WARNING: ke-piholecfg: no Pi-hole password available to stage; first boot will disable the web password" >&2
       fi
+    - |
+      REPO_ROOT=${SRCROOT:?SRCROOT is required}
+      # Regex deny entries for first boot: IGconf_ke_pihole_regex_deny (PIHOLE_REGEX_DENY in
+      # .env, semicolon-separated, empty by default) -> one pattern per line for the importer.
+      install -d -m 0755 "$1/usr/local/src/pihole"
+      : > "$1/usr/local/src/pihole/regex_deny.txt"
+      if [ -n "${IGconf_ke_pihole_regex_deny:-}" ]; then
+        printf '%s\n' "${IGconf_ke_pihole_regex_deny}" | tr ';' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v '^$' > "$1/usr/local/src/pihole/regex_deny.txt" || true
+        echo "ke-piholecfg: staged $(grep -c . "$1/usr/local/src/pihole/regex_deny.txt") regex deny pattern(s) for first boot"
+      fi
 
       DNS2=${IGconf_network_dns2:?IGconf_network_dns2 is required}
 
       # Add local copy of pi-hole installer script
-      cp -a "$REPO_ROOT/vendors/pi-hole/automated install/basic-install.sh" "$1/usr/local/src/pihole-installer/" 2>/dev/null || true
+      # The installer is the one thing first boot cannot do without: fail the build if it is missing.
+      cp -a "$REPO_ROOT/vendors/pi-hole/automated install/basic-install.sh" "$1/usr/local/src/pihole-installer/" \
+        || { echo "ERROR: ke-piholecfg: Pi-hole installer not found at $REPO_ROOT/vendors/pi-hole/automated install/basic-install.sh (submodule checked out?)" >&2; exit 1; }
       # Keep vendor DNS1 behavior intact and only replace DNS2 to avoid over-constraining upstream fallback.
       sed -i "s/9\.9\.9\.9/$DNS2/g" "$1/usr/local/src/pihole-installer/basic-install.sh" 2>/dev/null || true
       chmod +x "$1/usr/local/src/pihole-installer/basic-install.sh"
@@ -68,6 +80,7 @@ mmdebstrap:
         pihole setpassword "" || true
       fi
       python3 /usr/local/src/pihole/import_adlists.py || true
+      python3 /usr/local/src/pihole/import_regex_deny.py || true
       pihole restartdns reload-lists || true
       pihole -g || true
       # networkflush removed: on a fresh install the network table is empty,
@@ -181,6 +194,19 @@ mmdebstrap:
       cp -a "$REPO_ROOT/home/scripts/pihole/adlists_export.csv" "$1/usr/local/src/pihole/" 2>/dev/null || true
       cp -a "$REPO_ROOT/home/scripts/pihole/import_adlists.py" "$1/usr/local/src/pihole/" 2>/dev/null || true
       chmod +x "$1/usr/local/src/pihole/import_adlists.py"
+      cp -a "$REPO_ROOT/home/scripts/pihole/import_regex_deny.py" "$1/usr/local/src/pihole/" 2>/dev/null || true
+      chmod +x "$1/usr/local/src/pihole/import_regex_deny.py"
+      # Exporter beside the importer, plus the hand-run twins in ~/scripts: export-adlist.sh writes
+      # timestamped CSVs to ~/pihole-adlist-backups and diffs them, import-adlist.sh adds missing
+      # lists from such a CSV. The first-boot import above is unchanged.
+      cp -a "$REPO_ROOT/home/scripts/pihole/export_adlists.py" "$1/usr/local/src/pihole/" 2>/dev/null || true
+      chmod +x "$1/usr/local/src/pihole/export_adlists.py"
+      # This is a setup hook: /usr/local/bin does not exist yet, create it before installing.
+      install -d -m 0755 "$1/usr/local/bin"
+      install -m 0755 "$REPO_ROOT/home/scripts/pihole/export-adlist.sh" "$1/usr/local/bin/export-adlist.sh"
+      install -m 0755 "$REPO_ROOT/home/scripts/pihole/import-adlist.sh" "$1/usr/local/bin/import-adlist.sh"
+      # Run-time toggle for the WPAD regex (with backups) lands in ~/scripts like the other helpers.
+      install -m 0755 "$REPO_ROOT/home/scripts/pihole/wpad-block.sh" "$1/usr/local/bin/wpad-block.sh"
     - |
       # Copy local pi-hole config files from the repository.
       # These override the default installer settings.

@@ -37,6 +37,9 @@ ke:
   # sanitizes the hook environment ("crackdown on ambient env pollution"), so
   # ambient PIHOLE_PASSWORD no longer flows to hooks directly.
   pihole_password: $PIHOLE_PASSWORD
+  # Semicolon-separated regex deny entries imported at first boot; empty = none.
+  # e.g. PIHOLE_REGEX_DENY='^wpad\.' in .env blocks Web Proxy Auto-Discovery lookups.
+  pihole_regex_deny: $PIHOLE_REGEX_DENY
 
 network:
   interface: $NETWORK_INTERFACE
