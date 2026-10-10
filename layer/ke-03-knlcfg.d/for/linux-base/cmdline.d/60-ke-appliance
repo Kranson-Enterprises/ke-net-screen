@@ -1,0 +1,1 @@
+cfg80211.ieee80211_regdom=US mitigations=off cpufreq.default_governor=schedutil

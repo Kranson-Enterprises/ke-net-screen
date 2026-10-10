@@ -68,7 +68,7 @@ check_sysctl_min() {
 }
 
 check_cpu_governor() {
-    # The image boots with cpufreq.default_governor=schedutil (cmdline.txt).
+    # The image boots with cpufreq.default_governor=schedutil (kernel command-line drop-in in layer/ke-03-knlcfg.d).
     local expected="schedutil"
     local total=0
     local matching=0

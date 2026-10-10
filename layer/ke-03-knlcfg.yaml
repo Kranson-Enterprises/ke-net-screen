@@ -41,11 +41,13 @@ mmdebstrap:
       install -d -m 0755 "$1/etc/systemd/timesyncd.conf.d"
       cp "$REPO_ROOT/etc/systemd/timesyncd.conf.d/ke-timesync.conf" "$1/etc/systemd/timesyncd.conf.d" 2>/dev/null || true
     - |
-      # Tune the boot parameters for minimal resource usage
-      # Disable bluetooth and other services not needed for headless servers
+      # Firmware config: our config.txt replaces the rpi template (bluetooth off, headless).
+      # The kernel command line is NOT copied: since rpi-image-gen v2.8.0-88 linux-base
+      # assembles /boot/firmware/cmdline.txt from per-layer fragments in a late hook, which
+      # would overwrite a copied file. Our additions live in
+      # layer/ke-03-knlcfg.d/for/linux-base/cmdline.d/60-ke-appliance (static drop-in).
       REPO_ROOT=${SRCROOT:?SRCROOT is required}
       cp "$REPO_ROOT/boot/firmware/config.txt" "$1/boot/firmware" 2>/dev/null || true
-      cp "$REPO_ROOT/boot/firmware/cmdline.txt" "$1/boot/firmware" 2>/dev/null || true
     - |
       # Bootloader EEPROM helper (~/scripts/eeprom-update.sh): shows the installed bootloader
       # against the channel's latest and stages an update only on request. The boot-time
