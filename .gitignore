@@ -10,3 +10,6 @@ build.log
 private/*
 .gitea/gitea.txt
 .vscode/extensions.json
+
+# Python bytecode from local checks
+__pycache__/

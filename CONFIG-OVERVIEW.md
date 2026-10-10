@@ -215,7 +215,7 @@ sysctl net.core.rmem_max net.core.wmem_max net.core.netdev_max_backlog
 # Review Unbound cache behavior (hits/misses plus stale-serves and prefetches)
 unbound-control stats_noreset | grep -E 'total\.num\.cachehits|total\.num\.cachemiss|total\.num\.expired|total\.num\.prefetch'
 
-# Check CPU governor state (expected: schedutil, set via cmdline.txt)
+# Check CPU governor state (expected: schedutil, set via the kernel command-line drop-in layer/ke-03-knlcfg.d/for/linux-base/cmdline.d/60-ke-appliance)
 grep -H . /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor 2>/dev/null
 ```
 
@@ -284,6 +284,30 @@ Notes:
 - Avahi: `journalctl -u avahi-daemon`
 - systemd-resolved: `journalctl -u systemd-resolved`
 - journald itself is size-capped by its defaults (persistent storage, ~10% of the filesystem)
+
+### Adlist Export and Import
+
+`sudo ~/scripts/export-adlist.sh` writes the current adlists to
+`~/pihole-adlist-backups/adlists-<stamp>.csv` (the same CSV format the first-boot import
+uses) and prints what changed since the previous export; `--diff` compares any two exports,
+`--list` shows them. `import-adlist.sh [FILE]` is a dry run of what a CSV would add;
+`sudo import-adlist.sh FILE --apply [--gravity]` adds the missing lists (existing ones are
+never touched), after taking an export of the current state. Keep an export per release to
+compare list sets, or to rebuild the lists if the appliance is lost. `sudo export-adlist.sh
+--domains` writes the realized block list instead, every domain gravity imported from those
+lists (`gravity-domains-<stamp>.txt`, one per line, about a million lines), with per-list
+counts; `--domains-diff` shows which domains appeared or vanished between two such exports.
+
+### Regex Deny Entries and the WPAD Toggle
+
+`PIHOLE_REGEX_DENY` in `.env` (semicolon-separated, empty by default) flows through
+`config/ke-net-screen.yaml` as `ke.pihole_regex_deny` → `IGconf_ke_pihole_regex_deny`, declared
+in `layer/ke-00-layer.yaml` and consumed by `ke-piholecfg`, which stages the patterns and imports
+them into gravity.db as regex deny entries on first boot. The recommended value `^wpad\.` keeps
+Windows Web Proxy Auto-Discovery lookups on the LAN and, because Pi-hole answers them, also stops
+the client's LLMNR fallback. On the appliance `~/scripts/wpad-block.sh` shows the state and
+`sudo wpad-block.sh --on|--off` toggles the entry; every change is preceded by a backup of the
+domain lists in `~/pihole-backups/`, and `--restore` puts a backup back.
 
 ### Collecting Logs for Review
 

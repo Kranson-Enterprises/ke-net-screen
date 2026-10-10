@@ -324,6 +324,21 @@ against the appliance's own name or address it collects locally without SSH and 
 `~/appliance-logs/`. Run it as your normal user, never under `sudo`: interactive runs prompt
 for your sudo password only for the cache dump.
 
+### Adlist Backups
+
+`sudo ~/scripts/export-adlist.sh` saves the adlists to `~/pihole-adlist-backups/` as a
+timestamped CSV and diffs it against the previous one; `import-adlist.sh FILE --apply`
+re-adds missing lists from such a file. `--domains` exports the realized block list (every
+domain the adlists resolved to) for comparison between updates. The first-boot import from the
+image's CSV is unchanged.
+
+### Regex Deny Entries (WPAD)
+
+Set `PIHOLE_REGEX_DENY` in `.env` (for example `^wpad\.`) to import Pi-hole regex deny entries
+on first boot; it is empty by default. On the appliance, `~/scripts/wpad-block.sh --on` or `--off`
+toggles the WPAD entry at run time with a domain-list backup in `~/pihole-backups/` and a
+`--restore` path. See CONFIG-OVERVIEW for how the `ke.` variables flow from `.env` to the layers.
+
 ### Bootloader EEPROM
 
 The boot-time `rpi-eeprom-update -s -a` applies critical minimums only, so the bootloader can
@@ -598,9 +613,10 @@ The ./layer folder utilize META dependencies and variable expansion to feed the 
 
 The layers and boot files bake in a few appliance-focused defaults:
 
-- CPU frequency scaling uses `schedutil` (`cpufreq.default_governor=` in
-  `boot/firmware/cmdline.txt`) for fast ramp on sporadic DNS bursts at
-  ondemand-class idle power.
+- CPU frequency scaling uses `schedutil` (`cpufreq.default_governor=` in the kernel
+  command-line drop-in `layer/ke-03-knlcfg.d/for/linux-base/cmdline.d/60-ke-appliance`;
+  rpi-image-gen assembles `/boot/firmware/cmdline.txt` from such fragments) for fast ramp
+  on sporadic DNS bursts at ondemand-class idle power.
 - Wi-Fi and Bluetooth are disabled at the firmware level
   (`dtoverlay=disable-wifi`, `dtoverlay=disable-bt`) and the `iwd` wireless
   daemon is removed from the image — this is a wired-only appliance.

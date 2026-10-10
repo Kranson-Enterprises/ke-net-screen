@@ -64,7 +64,7 @@ grep -q "check_sysctl_min\|check_cpu_governor\|check_unbound_cache_stats" home/s
 Key metrics to establish baseline post-deployment:
 
 - Kernel buffer sizes (`net.core.rmem_max`, `net.core.wmem_max`)
-- CPU governor state (expected: `schedutil`, set via `cpufreq.default_governor=` in cmdline.txt)
+- CPU governor state (expected: `schedutil`, set via `cpufreq.default_governor=` in the kernel command-line drop-in `layer/ke-03-knlcfg.d/for/linux-base/cmdline.d/60-ke-appliance`)
 - Unbound recursions per day next to FTL's 24 h cached/forwarded split (a hit ratio is structurally ~0 % behind FTL)
 
 ## 4. Validate Artifact Metadata
