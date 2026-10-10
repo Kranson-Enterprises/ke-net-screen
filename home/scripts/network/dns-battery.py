@@ -14,12 +14,17 @@ Sections:
     4  TCP path + TCP Fast Open probe
     5  NTP service quality + jitter
     6  dns64 / rebinding / negative-cache / CNAME / PTR-leak / ANY
-    7  30 s sustained burst (~170 qps)
+    7  posture (informational, before the burst so rate limiting cannot colour it):
+       WPAD regex state, admin HTTP->HTTPS redirect, TLS cert expiry
+    8  30 s sustained burst (~170 qps)
 
 Expected results per deployment are tracked in
 private/release-notes-*.md (post-deployment validation).
 """
+import os
 import random
+import ssl
+import tempfile
 import socket
 import statistics
 import string
@@ -309,7 +314,87 @@ r = udp_query("google.com", 255, timeout=6.0)
 if r:
     print(f"  ANY (255)    : rcode={r['rcode']} answers={r['ancount']} (minimal expected)")
 
-section(7, "30s sustained burst (~170 qps, 80% repeat / 20% unique)")
+section(7, "posture probes (informational: report policy state, never fail)")
+# WPAD regex (PIHOLE_REGEX_DENY / wpad-block.sh): Pi-hole answers a regex-denied name with
+# 0.0.0.0, so blocked beats NXDOMAIN - an answered name stops Windows' LLMNR/NetBIOS fallback.
+wpad_states = []
+for name in ["wpad.lan", "wpad.example.com"]:
+    r = udp_query(name, timeout=6.0, want_answers=True)
+    if r is None:
+        wpad_states.append(f"{name}=timeout")
+        continue
+    ips = [fmt_ip(*a) for a in r.get("answers", []) if a[0] == 1]
+    if any(ip in ("0.0.0.0", "::") for ip in ips):
+        wpad_states.append(f"{name}=blocked")
+    elif r["rcode"] == 3:
+        wpad_states.append(f"{name}=nxdomain")
+    elif r["rcode"] == 5:
+        wpad_states.append(f"{name}=refused(rate-limited?)")
+    else:
+        wpad_states.append(f"{name}=rcode{r['rcode']}{ips}")
+wpad_active = bool(wpad_states) and all("=blocked" in x for x in wpad_states)
+wpad_unknown = any("refused" in x or "timeout" in x for x in wpad_states)
+wpad_label = "ACTIVE" if wpad_active else ("undetermined" if wpad_unknown else "not active")
+print(f"  wpad regex   : {wpad_label} ({', '.join(wpad_states)})"
+      f"{'' if wpad_active or wpad_unknown else '  [sudo wpad-block.sh --on, or PIHOLE_REGEX_DENY in .env]'}")
+
+
+def http_head(port, tls=False, path="/admin/"):
+    sock = socket.create_connection((SERVER, port), timeout=5)
+    if tls:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        sock = ctx.wrap_socket(sock, server_hostname=SERVER)
+    try:
+        sock.sendall(f"HEAD {path} HTTP/1.0\r\nHost: {SERVER}\r\n\r\n".encode())
+        data = b""
+        while b"\r\n\r\n" not in data:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+    finally:
+        sock.close()
+    lines = data.decode(errors="replace").split("\r\n")
+    parts = lines[0].split(" ")
+    status = parts[1] if len(parts) > 1 else "?"
+    loc = next((h.split(":", 1)[1].strip() for h in lines[1:] if h.lower().startswith("location:")), "")
+    return status, loc
+
+
+try:
+    st, loc = http_head(80)
+    if loc.lower().startswith("https://"):
+        print(f"  admin http   : {st} -> {loc}  [redirects to HTTPS]")
+    else:
+        print(f"  admin http   : {st} {loc or '(no Location)'}  [plain HTTP served; "
+              f"webserver.port = \"80r,443s\" would redirect]")
+except OSError as e:
+    print(f"  admin http   : port 80 unreachable ({e})")
+
+try:
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    with socket.create_connection((SERVER, 443), timeout=5) as raw, \
+            ctx.wrap_socket(raw, server_hostname=SERVER) as tls_sock:
+        der = tls_sock.getpeercert(binary_form=True)
+    with tempfile.NamedTemporaryFile("w", suffix=".pem", delete=False) as pemf:
+        pemf.write(ssl.DER_cert_to_PEM_cert(der))
+        pem_path = pemf.name
+    try:
+        info = ssl._ssl._test_decode_cert(pem_path)  # stdlib's own PEM decoder (private API)
+    finally:
+        os.unlink(pem_path)
+    cn = dict(x[0] for x in info.get("subject", ())).get("commonName", "?")
+    days = (ssl.cert_time_to_seconds(info["notAfter"]) - time.time()) / 86400
+    print(f"  admin tls    : CN={cn} expires {info['notAfter']} ({days:.0f} days)"
+          f"{'  <-- renews/expires soon' if days < 14 else ''}")
+except (OSError, ssl.SSLError, KeyError, ValueError) as e:
+    print(f"  admin tls    : {e}")
+
+section(8, "30s sustained burst (~170 qps, 80% repeat / 20% unique)")
 pool = REAL + ["google.com", "github.com", "apple.com", "microsoft.com",
                "amazon.com", "debian.org"]
 lat, errs, lock = [], [0], threading.Lock()
