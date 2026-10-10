@@ -319,7 +319,10 @@ journalctl -u net-snapshot.service -u power-report.service -o cat --no-pager | t
 Unbound cache dump and a `tar.gz` of the monitor logs with a host-facts snapshot into
 `private/inbox/` and prints a short review. Add `--since-last` for an incremental journal;
 see `--help` for the sudoers line that lets the cache dump run unattended. The image also
-ships the script at `~/scripts/collect-appliance-logs.sh` (the `ke-monitor` layer).
+ships the script at `~/scripts/collect-appliance-logs.sh` (the `ke-monitor` layer); run there
+against the appliance's own name or address it collects locally without SSH and writes to
+`~/appliance-logs/`. Run it as your normal user, never under `sudo`: interactive runs prompt
+for your sudo password only for the cache dump.
 
 ### Bootloader EEPROM
 

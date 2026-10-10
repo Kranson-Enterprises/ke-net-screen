@@ -10,7 +10,9 @@
 #   ./collect-appliance-logs.sh --dest ~/drops --no-dump admin@ke-localdns
 #   ./collect-appliance-logs.sh --help
 #
-# Produces in DEST (default: <repo>/private/inbox when it exists, else the current directory):
+# Produces in DEST (default: <repo>/private/inbox when run from the repository, otherwise
+# ~/appliance-logs; --dest overrides). Run on the appliance itself (~/scripts/…), it works
+# locally without SSH when the target is this host's name, address or localhost:
 #   journal-<hostname>-<YYMMDD-HHMM>.txt          journalctl -b (or --since the last run), short format
 #   dns-cache-as-of-<YYMMDD-HH-MM>.txt            unbound-control dump_cache (root on the appliance; see Access)
 #   appliance-logs-<hostname>-<YYMMDD-HHMM>.tar.gz
@@ -31,10 +33,12 @@
 #   --with-pihole-logs    add /var/log/pihole/FTL.log and webserver.log to the package
 #   --keep-staging        leave the staging directory behind (debugging)
 #
-# Access: SSH as your normal user (key recommended; one connection is shared). The journal is
-#   readable by members of adm / systemd-journal, everything else in the package needs no
-#   privilege. The cache dump needs root: for unattended runs grant exactly that command
-#   without a password on the appliance (mode 0440; check with visudo -cf first):
+# Access: run as YOUR normal user, never under sudo (ssh would then log in as root, which the
+#   appliance refuses). One SSH connection is shared. The journal is readable by members of
+#   adm / systemd-journal; everything else in the package needs no privilege. Only the cache
+#   dump needs root on the appliance: interactively you are asked for your sudo password
+#   once; for unattended (cron) runs grant exactly that command without a password on the
+#   appliance (mode 0440; check with visudo -cf first):
 #     echo 'localadmin ALL=(root) NOPASSWD: /usr/sbin/unbound-control -c /etc/unbound/unbound.conf dump_cache' \
 #       | sudo tee /etc/sudoers.d/ke-collect-dump
 #   Without it the dump is skipped and everything else is still collected.
@@ -52,7 +56,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 DEST=""; SINCE_LAST=0; DO_DUMP=1; DO_PACKAGE=1; PIHOLE_LOGS=0; KEEP=0; TARGET=""
 WARNINGS=()
 
-usage() { sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,50p' "$0" | sed 's/^# \{0,1\}//'; }
 die()   { echo "collect-appliance-logs.sh: $*" >&2; exit 1; }
 note()  { printf '==> %s\n' "$*"; }
 warn()  { printf '!!  %s\n' "$*" >&2; WARNINGS+=("$*"); }
@@ -72,27 +76,63 @@ while (( $# )); do
     shift
 done
 [[ -n "$TARGET" ]] || die "target required, e.g. 192.168.0.53 or admin@ke-localdns (see --help)"
+if (( EUID == 0 )) && [[ "$TARGET" != *@* ]]; then
+    die "running as root: ssh would log in as root@$TARGET, which the appliance refuses (PermitRootLogin no). Run this as your normal user${SUDO_USER:+ ($SUDO_USER)}, or give user@host."
+fi
 for t in ssh tar gzip; do command -v "$t" >/dev/null 2>&1 || die "$t not found on this host"; done
 if [[ -z "$DEST" ]]; then
-    if [[ -d "$REPO_ROOT/private/inbox" ]]; then DEST="$REPO_ROOT/private/inbox"; else DEST="$PWD"; fi
+    if [[ -d "$REPO_ROOT/private/inbox" ]]; then DEST="$REPO_ROOT/private/inbox"; else DEST="$HOME/appliance-logs"; fi
 fi
-mkdir -p "$DEST"
+mkdir -p "$DEST" 2>/dev/null || die "cannot create $DEST"
+[[ -w "$DEST" ]] || die "$DEST is not writable by $(id -un); pick another with --dest"
+
+# Running on the appliance itself? Then skip SSH and run everything locally.
+LOCAL=0
+host=${TARGET##*@}
+if [[ "$host" == localhost || "$host" == 127.* || "$host" == "$(hostname)" || "$host" == "$(hostname -s 2>/dev/null)" ]]; then LOCAL=1; fi
+for ip in $(hostname -I 2>/dev/null); do [[ "$ip" == "$host" ]] && LOCAL=1; done
 
 STAGE=$(mktemp -d "${TMPDIR:-/tmp}/collect-appliance.XXXXXX")
+touch "$STAGE/journal.err" "$STAGE/package.err" "$STAGE/dump.err"
 # One SSH connection shared by every step (at most one key/passphrase prompt).
 SSH_OPTS=(-o ConnectTimeout=10 -o ControlMaster=auto -o ControlPersist=120 -o "ControlPath=$STAGE/ssh-%C")
 [[ -t 0 ]] || SSH_OPTS+=(-o BatchMode=yes)
 cleanup() {
-    ssh "${SSH_OPTS[@]}" -O exit "$TARGET" >/dev/null 2>&1 || true
+    (( LOCAL )) || ssh "${SSH_OPTS[@]}" -O exit "$TARGET" >/dev/null 2>&1 || true
     (( KEEP )) && { echo "staging kept at $STAGE"; return; }
     rm -rf "$STAGE"
 }
 trap cleanup EXIT
-rssh() { ssh "${SSH_OPTS[@]}" "$TARGET" "$@"; }
+if (( LOCAL )); then
+    rssh()   { bash -c "$1"; }
+    rssh_t() { bash -c "$1"; }
+else
+    rssh()   { ssh "${SSH_OPTS[@]}" "$TARGET" "$@"; }
+    rssh_t() { ssh "${SSH_OPTS[@]}" -t "$TARGET" "$@"; }   # with a pty, so sudo can prompt
+fi
+# Run a root-only command on the appliance and capture its stdout locally.
+#   rsudo_capture <local-file> <err-file> "<remote command>"
+# Interactive (stdin is a terminal): sudo prompts for YOUR password on this terminal; the
+# output goes to a remote temp file first so the prompt never lands in the capture. Cron
+# (no terminal): sudo -n, which succeeds only with the NOPASSWD line from --help.
+rsudo_capture() {
+    local out=$1 err=$2 cmd=$3 tmp
+    if [[ -t 0 ]]; then
+        tmp="/tmp/ke-collect.$$.$RANDOM"
+        if rssh_t "sudo -p '[sudo on %h] password for %u: ' $cmd > '$tmp'" 2>"$err"; then
+            rssh "cat '$tmp'; rm -f '$tmp'" > "$out" 2>>"$err"
+        else
+            rssh "rm -f '$tmp'" >/dev/null 2>&1 || true
+            return 1
+        fi
+    else
+        rssh "sudo -n $cmd" > "$out" 2>"$err"
+    fi
+}
 
 # ---------------------------------------------------------------- identify the appliance
-note "Connecting to $TARGET"
-REMOTE_ID=$(rssh 'printf "%s|%s\n" "$(hostname)" "$(date "+%Y-%m-%d %H:%M:%S")"') || die "ssh to $TARGET failed"
+if (( LOCAL )); then note "Target is this host; collecting locally (no SSH)"; else note "Connecting to $TARGET"; fi
+REMOTE_ID=$(rssh 'printf "%s|%s\n" "$(hostname)" "$(date "+%Y-%m-%d %H:%M:%S")"') || die "$( ((LOCAL)) && echo "local probe failed" || echo "ssh to $TARGET failed")"
 IFS='|' read -r RHOST RNOW <<<"$REMOTE_ID"
 [[ -n "$RHOST" ]] || die "could not read the remote hostname"
 STAMP=$(date '+%y%m%d-%H%M'); DUMP_STAMP=$(date '+%y%m%d-%H-%M')
@@ -112,7 +152,7 @@ JCMD="journalctl $(printf '%q ' "${JARGS[@]}")"
 # and a hint on stderr, in which case retry through sudo -n.
 rssh "$JCMD" > "$JOURNAL" 2>"$STAGE/journal.err" || true
 if [[ ! -s "$JOURNAL" ]] || grep -q 'not seeing messages' "$STAGE/journal.err"; then
-    rssh "sudo -n $JCMD" > "$JOURNAL" 2>>"$STAGE/journal.err" || true
+    rsudo_capture "$JOURNAL" "$STAGE/journal.err" "$JCMD" || true
 fi
 if [[ -s "$JOURNAL" ]]; then
     note "journal: $(wc -l < "$JOURNAL") lines, $(stat -c%s "$JOURNAL") bytes"
@@ -193,12 +233,13 @@ fi
 DUMP=""
 if (( DO_DUMP )); then
     DUMP="$DEST/dns-cache-as-of-$DUMP_STAMP.txt"
-    if rssh 'sudo -n /usr/sbin/unbound-control -c /etc/unbound/unbound.conf dump_cache' > "$DUMP" 2>"$STAGE/dump.err" \
+    note "cache dump needs root on the appliance$( [[ -t 0 ]] && echo ' — enter YOUR sudo password if asked' )"
+    if rsudo_capture "$DUMP" "$STAGE/dump.err" "/usr/sbin/unbound-control -c /etc/unbound/unbound.conf dump_cache" \
        && grep -q '^START_RRSET_CACHE' "$DUMP"; then
         note "cache dump: $(wc -l < "$DUMP") lines ($(grep -c '^;rrset' "$DUMP") rrsets, $(grep -c '^msg ' "$DUMP") messages)"
     else
         rm -f "$DUMP"; DUMP=""
-        warn "cache dump skipped: $(tr '\n' ' ' < "$STAGE/dump.err" | cut -c1-140) — grant NOPASSWD for that one command (see --help)"
+        warn "cache dump skipped (needs sudo on the appliance): $(tr '\n' ' ' < "$STAGE/dump.err" | tr -d '\r' | cut -c1-140). Interactive runs prompt for your password; cron needs the NOPASSWD line from --help. Everything else was collected."
     fi
 fi
 

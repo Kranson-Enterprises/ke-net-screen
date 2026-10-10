@@ -293,8 +293,10 @@ logs plus a host-facts snapshot (card, sectors written, failed units, timers, ve
 history) into `private/inbox/`, then prints a one-screen review (failed units, health ⚠/✗,
 under-voltage, SSH password logins, last health verdict, last `trend` and `snapshot`
 records). `--since-last` makes the journal incremental for a weekly cron. The cache dump
-needs root on the appliance; the script header shows the single-command sudoers line for
-unattended runs, and everything else is collected without it. All monitoring pieces are
+needs root on the appliance: interactive runs prompt for your sudo password once, cron runs
+need the single-command sudoers line from the script header, and everything else is collected
+without it. Run as your normal user (not under `sudo`). On the appliance itself the script
+works locally without SSH and writes to `~/appliance-logs/`. All monitoring pieces are
 installed by `layer/ke-25-monitor.yaml`, which also puts the collector itself in
 `/usr/local/bin` (`~/scripts/`) on the appliance.
 
