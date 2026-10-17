@@ -139,6 +139,7 @@ onto shared boundaries instead of scattering.
 | `dns-health-check.timer` | 2 min after boot, then every 23 h (rotating hour) | Full stack health + observability snapshot |
 | `net-snapshot.timer` | 5 min after boot, then hourly | Kernel network counters (`nstat`) + socket summary/listeners (`ss`) to `/var/log/net-snapshot.log`; one `snapshot …` record per run in journald |
 | `power-report.timer` | 5 min after boot, then hourly | Throttle flags, PMIC rail power, temperatures, energy forecast to `/var/log/power-report.log`; one `trend …` record per run in journald |
+| `ke-maintenance.timer` | monthly, 1st 03:40 (+ random ≤20 min) | Read-only device maintenance: full-card read scrub, SQLite `quick_check` on the Pi-hole databases, `journalctl --verify`, Teleporter config backup (keep 6) to `/var/lib/ke-maintenance`; one `maintenance …` record per run in journald |
 | `pihole-gravity.timer` | Sun 03:00 + up to 4 h jitter, `Persistent=true` | Weekly blocklist refresh |
 | `pihole-logflush.timer` | Daily 00:10 + 30 min jitter | Rotates the Pi-hole query log via Pi-hole's own logrotate config |
 
@@ -279,6 +280,7 @@ Notes:
 - Pi-hole (v6): `/var/log/pihole/pihole.log` (rotated daily by `pihole-logflush.timer`) and `/var/log/pihole/FTL.log` (rotates at FTL startup, as does `webserver.log`)
 - Health check: `/var/log/dns-health.log` — self-rotates at 256 KiB, one previous generation kept (~512 KiB ceiling); journald holds the primary copy (`journalctl -u dns-health-check`)
 - Network snapshot: `/var/log/net-snapshot.log` — the full hourly `nstat`/`ss` dump, self-rotates at 2 MiB (about two weeks) with one previous generation; journald carries only the one-line `snapshot ts=… udp_in=… tcp_retrans=…` record per run (`journalctl -u net-snapshot`), absolute counters since boot, so two records give the load or loss in between
+- Maintenance: `/var/log/ke-maintenance.log` — the monthly bundle report; journald carries one `maintenance ts=… scrub_err=… db_gravity=…` record per run. Journald itself is bounded by `etc/systemd/journald.conf.d/ke-journald.conf`: 14-month retention, weekly sealed files, 3 GB cap, 15-min write batching
 - Power report: `/var/log/power-report.log` — the full hourly report, self-rotates at 2 MiB (about a month) with one previous generation; journald carries only the one-line `trend ts=… rail_w=… est_w=…` record per run (`journalctl -u power-report`). Weekly average: see the awk one-liner in the script header
 - Unbound: `journalctl -u unbound` (file logging disabled: `verbosity: 0`, no `logfile` configured)
 - Avahi: `journalctl -u avahi-daemon`

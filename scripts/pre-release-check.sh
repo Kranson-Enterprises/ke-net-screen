@@ -17,6 +17,7 @@ bash -n home/scripts/monitoring/net-snapshot.sh
 bash -n home/scripts/monitoring/power-report.sh
 bash -n home/scripts/network/collect-appliance-logs.sh
 bash -n home/scripts/firmware/eeprom-update.sh
+bash -n home/scripts/maintenance/ke-maintenance.sh
 bash -n home/scripts/pihole/wpad-block.sh
 bash -n home/scripts/pihole/export-adlist.sh
 bash -n home/scripts/pihole/import-adlist.sh
@@ -24,7 +25,7 @@ python3 -c 'import ast,sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]
 
 # The ke-monitor layer installs these from the repository; a missing file fails the build late.
 echo "[check] monitoring units present"
-for unit in net-snapshot.service net-snapshot.timer power-report.service power-report.timer; do
+for unit in net-snapshot.service net-snapshot.timer power-report.service power-report.timer ke-maintenance.service ke-maintenance.timer; do
   test -f "etc/systemd/system/$unit" || { echo "[fail] missing etc/systemd/system/$unit"; exit 1; }
 done
 
@@ -32,6 +33,14 @@ done
 echo "[check] monitor units use --journal-summary"
 grep -q -- "--journal-summary" etc/systemd/system/net-snapshot.service
 grep -q -- "--journal-summary" etc/systemd/system/power-report.service
+grep -q -- "--journal-summary" etc/systemd/system/ke-maintenance.service
+
+# Journald retention drop-in must ship, and the cron normalization must stay in first boot.
+echo "[check] journald drop-in + cron single-scheduler normalization"
+grep -q 'MaxRetentionSec=14month' etc/systemd/journald.conf.d/ke-journald.conf
+grep -q 'ke-journald.conf' layer/ke-03-knlcfg.yaml
+grep -q 'pihole updateGravity' layer/ke-15-piholecfg.yaml
+grep -q 'ke-maintenance.timer' layer/ke-25-monitor.yaml
 
 # The monitor layer must exist and be pulled in by the root layer.
 echo "[check] ke-monitor layer wired in"

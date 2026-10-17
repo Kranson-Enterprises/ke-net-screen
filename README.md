@@ -309,7 +309,7 @@ sudo journalctl -u dns-health-check.service -n 100 --no-pager
 dig @127.0.0.1 github.com
 # Hourly monitors (first run 5 min after boot): journald holds one record per run,
 # the full reports are in /var/log/net-snapshot.log and /var/log/power-report.log
-systemctl list-timers 'net-snapshot*' 'power-report*'
+systemctl list-timers 'net-snapshot*' 'power-report*' 'ke-maintenance*'
 journalctl -u net-snapshot.service -u power-report.service -o cat --no-pager | tail -n 4
 ```
 
