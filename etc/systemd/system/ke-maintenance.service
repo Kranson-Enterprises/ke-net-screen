@@ -1,0 +1,20 @@
+# ke-maintenance.service — monthly read-only device maintenance (SD read-scrub,
+# sqlite quick_check on the Pi-hole databases, journal verify, teleporter backup).
+# Install mirrors the monitors (see layer/ke-25-monitor.yaml). Full report in
+# /var/log/ke-maintenance.log; journald gets one "maintenance ts=…" line per run.
+# Test on a running appliance:
+#   sudo cp home/scripts/maintenance/ke-maintenance.sh /usr/local/bin/ && sudo chmod 0755 /usr/local/bin/ke-maintenance.sh
+#   sudo cp etc/systemd/system/ke-maintenance.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now ke-maintenance.timer
+#   sudo ke-maintenance.sh --no-scrub   # quick functional pass without the ~1 h read
+[Unit]
+Description=Monthly appliance maintenance (read scrub, db checks, journal verify, config backup)
+
+[Service]
+Type=oneshot
+Nice=19
+IOSchedulingClass=idle
+ExecStart=/usr/local/bin/ke-maintenance.sh --journal-summary
+
+[Install]
+WantedBy=multi-user.target

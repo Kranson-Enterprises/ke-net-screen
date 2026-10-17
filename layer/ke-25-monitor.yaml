@@ -81,3 +81,13 @@ mmdebstrap:
       REPO_ROOT=${SRCROOT:?SRCROOT is required}
       install -d -m 0755 "$1/usr/local/bin"
       install -m 0755 "$REPO_ROOT/home/scripts/network/collect-appliance-logs.sh" "$1/usr/local/bin/collect-appliance-logs.sh"
+    - |
+      # Monthly maintenance bundle (SD read-scrub, sqlite quick_check on the Pi-hole
+      # databases, journalctl --verify, teleporter backup keep-6). One journald record
+      # per run, like the monitors. Plan: private worklog ke-maintenance-plan (2026-10-11).
+      REPO_ROOT=${SRCROOT:?SRCROOT is required}
+      install -d -m 0755 "$1/usr/local/bin" "$1/etc/systemd/system" "$1/etc/systemd/system/timers.target.wants" "$1/var/lib/ke-maintenance"
+      install -m 0755 "$REPO_ROOT/home/scripts/maintenance/ke-maintenance.sh" "$1/usr/local/bin/ke-maintenance.sh"
+      install -m 0644 "$REPO_ROOT/etc/systemd/system/ke-maintenance.service" "$1/etc/systemd/system/ke-maintenance.service"
+      install -m 0644 "$REPO_ROOT/etc/systemd/system/ke-maintenance.timer" "$1/etc/systemd/system/ke-maintenance.timer"
+      ln -sf "/etc/systemd/system/ke-maintenance.timer" "$1/etc/systemd/system/timers.target.wants/ke-maintenance.timer"

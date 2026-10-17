@@ -1,0 +1,13 @@
+# ke-maintenance.timer — monthly, 1st at 03:40 (clear of the nightly flush 00:00/00:38,
+# Sunday gravity 03:06/04:32, Sunday e2scrub 03:10 and cron.daily 06:25). Persistent
+# catches a box that was off on the 1st.
+[Unit]
+Description=Run monthly appliance maintenance
+
+[Timer]
+OnCalendar=*-*-01 03:40
+RandomizedDelaySec=20min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
