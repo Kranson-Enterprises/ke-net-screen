@@ -1,9 +1,10 @@
 # METABEGIN
 # X-Env-Layer-Name: ke-netcfg
 # X-Env-Layer-Desc: Network Configuration
-# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Version: 1.1.0
 # X-Env-Layer-Category: networking
 # X-Env-Layer-Requires: systemd-net-min
+# X-Env-Layer-AfterProvider: device,network-activator
 # X-Env-VarRequires: IGconf_network_interface
 # X-Env-VarRequires: IGconf_network_use_dhcp
 # X-Env-VarRequires: IGconf_network_ipaddress
@@ -15,6 +16,12 @@
 # X-Env-VarRequires: IGconf_network_dns2
 # X-Env-VarRequires: IGconf_network_domain
 # METAEND
+# AfterProvider rationale: the device layer (rpi-device-base) writes
+# /etc/systemd/network/01-eth0.network with DHCP=yes via its netgen hook, and
+# systemd-net-min provides network-activator. Ordering this layer after both
+# makes our static unit deterministically replace the base DHCP unit instead
+# of relying on plan order — the 2026-10 upstream example-networks
+# (contrib/net, v3-net-config 2.0.0) reconciliation.
 mmdebstrap:
   suite: trixie
   variant: minbase
