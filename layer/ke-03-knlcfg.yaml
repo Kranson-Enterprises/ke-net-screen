@@ -41,6 +41,14 @@ mmdebstrap:
       install -d -m 0755 "$1/etc/systemd/timesyncd.conf.d"
       cp "$REPO_ROOT/etc/systemd/timesyncd.conf.d/ke-timesync.conf" "$1/etc/systemd/timesyncd.conf.d" 2>/dev/null || true
     - |
+      # Bounded long-retention journald (14 months, weekly sealed files, 3G cap,
+      # 15-min sync batches). Rationale in the drop-in; plan: journald-retention-plan.
+      # Loud copy: a missing file should fail the build, not ship defaults silently.
+      set -eu
+      REPO_ROOT=${SRCROOT:?SRCROOT is required}
+      install -d -m 0755 "$1/etc/systemd/journald.conf.d"
+      install -m 0644 "$REPO_ROOT/etc/systemd/journald.conf.d/ke-journald.conf" "$1/etc/systemd/journald.conf.d/ke-journald.conf"
+    - |
       # Firmware config: our config.txt replaces the rpi template (bluetooth off, headless).
       # The kernel command line is NOT copied: since rpi-image-gen v2.8.0-88 linux-base
       # assembles /boot/firmware/cmdline.txt from per-layer fragments in a late hook, which
