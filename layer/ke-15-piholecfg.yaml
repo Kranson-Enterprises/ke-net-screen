@@ -54,6 +54,25 @@ mmdebstrap:
       /usr/local/src/pihole-installer/basic-install.sh --unattended &
       wait $!
       sleep 2
+      # Single-scheduler normalization, strictly ordered AFTER the installer has
+      # finished (wait above), so it cannot race it. History: the installer's own
+      # cron setup races and sometimes leaves /etc/cron.d/pihole broken or absent,
+      # which is why the pihole-gravity/pihole-logflush timers exist as the
+      # authoritative schedulers (Persistent=true). Normalize so each job has
+      # exactly ONE scheduler in both race outcomes:
+      #  - file present: drop the installer's gravity + nightly-flush entries
+      #    (observed double runs and a logrotate .1.gz collision), keep the rest
+      #  - file absent: recreate only the @reboot logrotate + updatechecker entries
+      if [ -f /etc/cron.d/pihole ]; then
+        sed -i -e '/pihole updateGravity/d' -e '/pihole flush once quiet/d' /etc/cron.d/pihole || true
+      else
+        cat > /etc/cron.d/pihole <<'EOCRON'
+      @reboot root /usr/sbin/logrotate --state /var/lib/logrotate/pihole /etc/logrotate.d/pihole
+      14 15 * * *   root    PATH="$PATH:/usr/sbin:/usr/local/bin/" pihole updatechecker
+      @reboot root    PATH="$PATH:/usr/sbin:/usr/local/bin/" pihole updatechecker reboot
+      EOCRON
+        chmod 644 /etc/cron.d/pihole || true
+      fi
       # disable this service so it doesn't run again
       rm -f /etc/systemd/system/multi-user.target.wants/run-pihole-firstboot.service || true
       # unbound-resolvconf.service is masked at image build time (ke-10);
