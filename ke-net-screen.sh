@@ -303,13 +303,23 @@ if [[ $BUILD_ONLY -eq 0 ]]; then
       exit 1
     fi
 
+    # Optional full-device discard (KE_FLASH_DISCARD=1): resets the card's FTL so
+    # wear leveling restarts from a clean slate. NOT the default: on 2026-10-17 a
+    # SanDisk SH32G stalled the kernel's mmc host for 4+ minutes after one whole-
+    # device discard and the following rpi-imager write failed. If requested, issue
+    # it in bounded 1 GiB steps so no single ioctl can wedge the card, and treat
+    # any failure as advisory.
+    if [[ "${KE_FLASH_DISCARD:-0}" == 1 ]]; then
+      echo "KE_FLASH_DISCARD=1: discarding $SD_DEVICE in 1 GiB steps (may take a while)"
+      sudo blkdiscard -f --step 1G "$SD_DEVICE" \
+        && echo "blkdiscard completed" \
+        || echo "blkdiscard failed or unsupported; continuing with the dd wipe"
+      sleep 3   # let the card settle and udev re-read before the next step
+    fi
+
     echo "Deleting contents of SD with DD"
     # This writes the first 34 blocks (17KB) of zeros to the SD card to clear partition table
-    sudo dd if=/dev/zero of="$SD_DEVICE" bs=512 count=34 status=progress
-
-    # This would wipe the entire SD card, uncomment with caution, it can take a long time
-    # sudo dd if=/dev/zero of=/dev/mmcblk0 status=progress
-    if [[ $? -ne 0 ]]; then
+    if ! sudo dd if=/dev/zero of="$SD_DEVICE" bs=512 count=34 status=progress; then
       echo "dd failed!"
       exit 1
     fi
