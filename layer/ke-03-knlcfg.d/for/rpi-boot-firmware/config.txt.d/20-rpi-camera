@@ -1,0 +1,5 @@
+
+# ke: no cameras on the appliance (replaces stock auto-detect)
+camera_auto_detect=0
+dtoverlay=disable-camera
+dtoverlay=

@@ -1,0 +1,22 @@
+// ke appliance policy for unattended-upgrades: security fixes only, never a
+// surprise reboot, and hands off the resolver.
+Unattended-Upgrade::Origins-Pattern {
+        // Debian security updates for the running release
+        "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+        // Raspberry Pi archive (kernel/firmware/userspace fixes for the board)
+        "origin=Raspberry Pi Foundation";
+};
+Unattended-Upgrade::Package-Blacklist {
+        // The image runs a source-built unbound held in place by dpkg
+        // diversions and already ahead of Debian on CVEs. Debian's unbound
+        // package churn is noise here; manual upgrades proved the diversions
+        // hold, but excluding it removes even that question.
+        "unbound.*";
+};
+// Kernel updates install but take effect at the next deliberate reboot;
+// an unattended DNS appliance must never reboot itself.
+Unattended-Upgrade::Automatic-Reboot "false";
+// Clean up: dependencies left behind by upgrades.
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+// Journald carries the summary; full detail in /var/log/unattended-upgrades/.
+Unattended-Upgrade::SyslogEnable "true";

@@ -105,6 +105,11 @@ mmdebstrap:
       # networkflush removed: on a fresh install the network table is empty,
       # and the FTL API is not reliably up this early (observed first-boot
       # "API not available" failures).
+      # DNS-over-TLS terminator (shipped only when the dot_terminator toggle was y):
+      # enable now that FTL exists and has generated /etc/pihole/tls.pem.
+      if [ -f /etc/stunnel/dot.conf ]; then
+        systemctl enable --now stunnel@dot || true
+      fi
       systemctl restart ssh
       EOS
       chmod +x "$1/usr/local/sbin/run-pihole-firstboot.sh"
@@ -241,4 +246,66 @@ mmdebstrap:
       # mid-value in longer strings resolve too.
       sed -i "s/IGconf_network_ipaddress/$PIHOLE_IPV4/g" "$1/etc/pihole/pihole.toml" "$1/usr/local/src/pihole/pihole.toml"
       chmod 0644 "$1/etc/pihole/pihole.toml"
+  customize-hooks:
+    - |
+      # Optional DNS-over-TLS terminator (IGconf_ke_dot_terminator=y): stunnel on
+      # 853 -> 127.0.0.1:53 (FTL), using the combined key+cert FTL self-generates
+      # at /etc/pihole/tls.pem on first boot. Android "Automatic" Private DNS then
+      # upgrades default-mode phones to encrypted DNS opportunistically, filtering
+      # intact. The unit is enabled by the first-boot script AFTER the installer
+      # (the cert does not exist before FTL first starts); a ConditionPathExists
+      # drop-in keeps it inert if the cert is ever absent. Toggle off = this hook
+      # installs nothing.
+      set -eu
+      if [ "${IGconf_ke_dot_terminator:-n}" = "y" ]; then
+        chroot "$1" apt-get -y install stunnel4
+        install -d -m 0755 "$1/etc/stunnel"
+        cat > "$1/etc/stunnel/dot.conf" <<-EODOT
+      ; ke: DNS-over-TLS terminator in front of pihole-FTL (see layer/ke-15-piholecfg.yaml)
+      ; foreground is REQUIRED: the packaged stunnel@.service is Type=simple, so a
+      ; backgrounding stunnel gets reaped by systemd 38 ms after the fork (observed).
+      foreground = yes
+      ; foreground logs to stderr -> journald; without this, syslog duplicates
+      ; every line under a second tag (observed: 2x per event on first boot).
+      syslog = no
+      [dns-over-tls]
+      accept = :::853
+      connect = 127.0.0.1:53
+      cert = /etc/pihole/tls.pem
+      EODOT
+        install -d -m 0755 "$1/etc/systemd/system/stunnel@dot.service.d"
+        cat > "$1/etc/systemd/system/stunnel@dot.service.d/ke.conf" <<-EODRP
+      [Unit]
+      # FTL writes the cert at first boot; stay inert until it exists.
+      ConditionPathExists=/etc/pihole/tls.pem
+      After=pihole-FTL.service
+      [Service]
+      Restart=on-failure
+      RestartSec=5
+      EODRP
+        # Certificate rotation: FTL regenerates /etc/pihole/tls.pem when it expires
+        # (~47-day validity), but stunnel keeps serving the certificate it loaded.
+        # A path unit watches the file and try-restarts the terminator on change;
+        # try-restart is a no-op while stunnel@dot is inactive, so this also stays
+        # quiet before first boot enables the service.
+        cat > "$1/etc/systemd/system/stunnel-cert-watch.path" <<-EOPTH
+      [Unit]
+      Description=Restart the DNS-over-TLS terminator when FTL rotates its certificate
 
+      [Path]
+      PathChanged=/etc/pihole/tls.pem
+
+      [Install]
+      WantedBy=multi-user.target
+      EOPTH
+        cat > "$1/etc/systemd/system/stunnel-cert-watch.service" <<-EOPSV
+      [Unit]
+      Description=Reload stunnel@dot after a certificate change
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/bin/systemctl try-restart stunnel@dot.service
+      EOPSV
+        install -d -m 0755 "$1/etc/systemd/system/multi-user.target.wants"
+        ln -sf "/etc/systemd/system/stunnel-cert-watch.path" "$1/etc/systemd/system/multi-user.target.wants/stunnel-cert-watch.path"
+      fi

@@ -132,6 +132,30 @@ Unbound.
 `DBinterval` = `600 s` timesyncd `SaveIntervalSec` — storage writes coalesce
 onto shared boundaries instead of scattering.
 
+## Deliberate Platform Decisions
+
+These are design choices, not omissions; revisit them only with measurements.
+
+- **`mitigations=off` on the kernel command line.** CPU side-channel mitigations are
+  disabled for throughput on a single-purpose, LAN-only resolver that runs no untrusted
+  code and serves no untrusted clients. The trade: local code execution could exploit
+  speculative side channels — acceptable on this appliance, wrong on a multi-user host.
+  Lives in `layer/ke-03-knlcfg.d/for/linux-base/cmdline.d/60-ke-appliance`.
+- **No swap, deliberately.** 8 GB RAM against a ~400 MB peak working set; the only path to
+  memory exhaustion is a software leak. Without swap the OOM killer ends the leaking
+  process in moments and systemd restarts it (FTL, unbound and avahi all carry
+  Restart=on-failure) — a logged blip. With SD-backed swap the same leak would thrash the
+  card for hours, stalling every DNS answer on the LAN, before failing anyway. The shipped
+  `vm.swappiness` sysctl is dormant unless swap is ever added.
+- **One clock owner.** systemd-timesyncd disciplines the system clock (explicit servers +
+  IP-literal fallbacks in `etc/systemd/timesyncd.conf.d/ke-timesync.conf`, so time sync
+  survives resolver outages). FTL's own NTP client is off (`ntp.sync.active = false` in
+  pihole.toml); FTL still *serves* NTP to the LAN from the system clock. Two active NTP
+  clients would fight over the clock.
+- **Bootloader changes are manual.** EEPROM updates and the hardening preset
+  (`eeprom-update.sh --harden`: SD-only boot order, power-off on halt) are operator
+  actions that show their diff and ask; nothing writes the EEPROM silently.
+
 ## Scheduled Maintenance
 
 | Timer | Schedule | Purpose |
@@ -174,6 +198,10 @@ dig @127.0.0.1 google.com
 # Check periodic health-check status
 systemctl status dns-health-check.timer dns-health-check.service
 journalctl -u dns-health-check.service -n 100 --no-pager
+
+# Scheduled reboots: show the full cron+timer schedule, then set weekly..yearly
+# cadence (or remove); confirms before writing ke-scheduled-reboot.timer (05:10)
+sudo schedule-reboot.sh
 
 # Bootloader EEPROM: installed vs the channel's latest (the boot-time service applies
 # critical minimums only); stage an update deliberately, then reboot to flash
@@ -281,7 +309,7 @@ Notes:
 - Health check: `/var/log/dns-health.log` — self-rotates at 256 KiB, one previous generation kept (~512 KiB ceiling); journald holds the primary copy (`journalctl -u dns-health-check`)
 - Network snapshot: `/var/log/net-snapshot.log` — the full hourly `nstat`/`ss` dump, self-rotates at 2 MiB (about two weeks) with one previous generation; journald carries only the one-line `snapshot ts=… udp_in=… tcp_retrans=…` record per run (`journalctl -u net-snapshot`), absolute counters since boot, so two records give the load or loss in between
 - Maintenance: `/var/log/ke-maintenance.log` — the monthly bundle report; journald carries one `maintenance ts=… scrub_err=… db_gravity=…` record per run. Journald itself is bounded by `etc/systemd/journald.conf.d/ke-journald.conf`: 14-month retention, weekly sealed files, 3 GB cap, 15-min write batching
-- Power report: `/var/log/power-report.log` — the full hourly report, self-rotates at 2 MiB (about a month) with one previous generation; journald carries only the one-line `trend ts=… rail_w=… est_w=…` record per run (`journalctl -u power-report`). Weekly average: see the awk one-liner in the script header
+- Power report: `/var/log/power-report.log` — the full hourly report, self-rotates at 2 MiB (about a month) with one previous generation; journald carries only the one-line `trend ts=… rail_w=… est_w=… fan_state=… fan_rpm=…` record per run (fan fields since v0.3.5; the collector summarizes duty as "fan on N/M") (`journalctl -u power-report`). Weekly average: see the awk one-liner in the script header
 - Unbound: `journalctl -u unbound` (file logging disabled: `verbosity: 0`, no `logfile` configured)
 - Avahi: `journalctl -u avahi-daemon`
 - systemd-resolved: `journalctl -u systemd-resolved`
@@ -304,6 +332,12 @@ counts; `--domains-diff` shows which domains appeared or vanished between two su
 
 `PIHOLE_REGEX_DENY` in `.env` (semicolon-separated, empty by default) flows through
 `config/ke-net-screen.yaml` as `ke.pihole_regex_deny` → `IGconf_ke_pihole_regex_deny`, declared
+`UNBOUND_EXTRA_HARDENING` (y/n, default n) adds `-D_FORTIFY_SOURCE=3` and
+`-fstack-clash-protection` to the Unbound source build after a toolchain probe; the build
+refuses to continue if the toolchain cannot honor it. `DOT_TERMINATOR` (y/n, default n)
+installs a stunnel DNS-over-TLS listener on 853 in front of FTL using FTL's self-generated
+certificate; first boot enables it once the certificate exists, and a path unit restarts the
+listener whenever FTL rotates the certificate (~47-day validity).
 in `layer/ke-00-layer.yaml` and consumed by `ke-piholecfg`, which stages the patterns and imports
 them into gravity.db as regex deny entries on first boot. The recommended value `^wpad\.` keeps
 Windows Web Proxy Auto-Discovery lookups on the LAN and, because Pi-hole answers them, also stops

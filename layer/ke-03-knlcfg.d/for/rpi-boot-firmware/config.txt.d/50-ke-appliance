@@ -1,0 +1,8 @@
+
+# ke appliance additions: 64-bit kernel, wireless silicon off at the firmware
+# level (wired-only DNS box). CM5 USB host mode comes from the stock 71-rpi-cm5
+# fragment; do not repeat it here.
+arm_64bit=1
+dtoverlay=disable-bt
+dtoverlay=disable-wifi
+dtoverlay=

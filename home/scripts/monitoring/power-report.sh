@@ -135,12 +135,28 @@ EST_W=""
 if [[ -n "$RAIL_AVG" ]]; then
     EST_W=$(awk -v w="$RAIL_AVG" -v e="$EFFICIENCY" 'BEGIN { printf "%.3f", w / e }')
 fi
-# One grep-able record per run (see header for the weekly-average awk). Same field order
-# as every earlier release, so old and new logs average together.
-TREND=$(printf 'trend ts=%s rail_w=%s est_w=%s wall_w=%s ext5v=%s samples=%d arm_mhz=%s soc_c=%s throttled=%s' \
+# Fan (Pi 5 pwm-fan): cooling state 0-4 and tach RPM, "na" where the hardware or
+# driver is absent, so the record stays portable and the collector can compute
+# duty cycle (share of samples with fan_state > 0) from hourly history.
+FAN_STATE=na; FAN_RPM=na
+if [[ -r /sys/class/thermal/cooling_device0/type ]] \
+   && [[ "$(cat /sys/class/thermal/cooling_device0/type 2>/dev/null)" == pwm-fan ]]; then
+    FAN_STATE=$(cat /sys/class/thermal/cooling_device0/cur_state 2>/dev/null || echo na)
+    for h in /sys/class/hwmon/hwmon*; do
+        if [[ "$(cat "$h/name" 2>/dev/null)" == pwmfan ]]; then
+            FAN_RPM=$(cat "$h/fan1_input" 2>/dev/null || echo na)
+            break
+        fi
+    done
+fi
+
+# One grep-able record per run (see header for the weekly-average awk). Field order of the
+# original fields is unchanged so old and new logs average together; fan_* append.
+TREND=$(printf 'trend ts=%s rail_w=%s est_w=%s wall_w=%s ext5v=%s samples=%d arm_mhz=%s soc_c=%s throttled=%s fan_state=%s fan_rpm=%s' \
     "${TS// /T}" "${RAIL_AVG:--}" "${EST_W:--}" "${WALL:--}" "${EXT5V_AVG:--}" "$SAMPLES" "${ARM_MHZ:--}" \
     "$( [[ "$SOC_TEMP" == temp=* ]] && { t=${SOC_TEMP#temp=}; echo "${t%\'C}"; } || echo '-' )" \
-    "$( [[ "$RAW" == throttled=* ]] && echo "${RAW#throttled=}" || echo '-' )")
+    "$( [[ "$RAW" == throttled=* ]] && echo "${RAW#throttled=}" || echo '-' )" \
+    "$FAN_STATE" "$FAN_RPM")
 
 # ---------------------------------------------------------------- throttle flags
 report_throttled() {

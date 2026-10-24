@@ -304,7 +304,16 @@ if [[ -f "$LOGS/dns-health.log" ]]; then
 fi
 if [[ -f "$LOGS/power-report.log" ]]; then
     echo "  power:  $(grep '^trend ' "$LOGS/power-report.log" | tail -1 || echo 'no trend records')"
-    grep '^trend ' "$LOGS/power-report.log" | awk '{for(i=2;i<=NF;i++){split($i,kv,"="); if(kv[1]=="est_w") e+=kv[2]; if(kv[1]=="soc_c") t+=kv[2]}; n++} END{if(n) printf "          %d runs: mean est-input %.3f W (%.2f kWh/yr), mean SoC %.1f C\n", n, e/n, e/n*8.76, t/n}'
+    # DoT terminator adoption (if the journal has stunnel accept lines). The same event
+    # can appear under two syslog tags on pre-syslog=no images, so dedupe on ip:port.
+    DOT_PEERS=$(grep -oE 'dns-over-tls\] accepted connection from [0-9a-fA-F:.]+' "$JOURNAL" 2>/dev/null \
+        | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+' | sort -u) || true
+    if [[ -n "${DOT_PEERS:-}" ]]; then
+        DOT_BY_IP=$(cut -d: -f1 <<<"$DOT_PEERS" | sort | uniq -c | sort -rn)
+        echo "  dot:    $(wc -l <<<"$DOT_PEERS") TLS connection(s) from $(wc -l <<<"$DOT_BY_IP") client(s): $(awk '{printf "%s(%s) ", $2, $1}' <<<"$DOT_BY_IP" | head -c 120)"
+    fi
+
+    grep '^trend ' "$LOGS/power-report.log" | awk '{for(i=2;i<=NF;i++){split($i,kv,"="); if(kv[1]=="est_w") e+=kv[2]; if(kv[1]=="soc_c") t+=kv[2]; if(kv[1]=="fan_state"){fs++; if(kv[2]+0>0) fon++}}; n++} END{if(n) { printf "          %d runs: mean est-input %.3f W (%.2f kWh/yr), mean SoC %.1f C", n, e/n, e/n*8.76, t/n; if(fs) printf ", fan on %d/%d", fon, fs; printf "\n"}}'
 fi
 if [[ -f "$LOGS/net-snapshot.log" ]]; then
     first=$(grep '^snapshot ' "$LOGS/net-snapshot.log" | head -1 || true); last=$(grep '^snapshot ' "$LOGS/net-snapshot.log" | tail -1 || true)

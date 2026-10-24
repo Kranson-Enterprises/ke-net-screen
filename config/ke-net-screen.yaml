@@ -40,6 +40,7 @@ ke:
   # Semicolon-separated regex deny entries imported at first boot; empty = none.
   # e.g. PIHOLE_REGEX_DENY='^wpad\.' in .env blocks Web Proxy Auto-Discovery lookups.
   pihole_regex_deny: $PIHOLE_REGEX_DENY
+  dot_terminator: $DOT_TERMINATOR
 
 network:
   interface: $NETWORK_INTERFACE

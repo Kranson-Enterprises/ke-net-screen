@@ -1,0 +1,9 @@
+
+# ke: Pi 5 section (replaces stock): keep boot UART for bringup, quiet the
+# second stage, and run the fan earlier/gentler than the stock 50 C trip
+# (SoC idles 46-50 C passive; on at 45 C, off at 40 C).
+[pi5]
+BOOT_UART=1
+uart_2ndstage=0
+dtparam=fan_temp0=45000
+dtparam=fan_temp0_hyst=5000

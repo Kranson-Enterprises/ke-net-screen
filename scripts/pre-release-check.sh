@@ -18,6 +18,7 @@ bash -n home/scripts/monitoring/power-report.sh
 bash -n home/scripts/network/collect-appliance-logs.sh
 bash -n home/scripts/firmware/eeprom-update.sh
 bash -n home/scripts/maintenance/ke-maintenance.sh
+bash -n home/scripts/maintenance/schedule-reboot.sh
 bash -n home/scripts/pihole/wpad-block.sh
 bash -n home/scripts/pihole/export-adlist.sh
 bash -n home/scripts/pihole/import-adlist.sh
@@ -41,6 +42,7 @@ grep -q 'MaxRetentionSec=14month' etc/systemd/journald.conf.d/ke-journald.conf
 grep -q 'ke-journald.conf' layer/ke-03-knlcfg.yaml
 grep -q 'pihole updateGravity' layer/ke-15-piholecfg.yaml
 grep -q 'ke-maintenance.timer' layer/ke-25-monitor.yaml
+grep -q 'schedule-reboot.sh' layer/ke-25-monitor.yaml
 
 # The monitor layer must exist and be pulled in by the root layer.
 echo "[check] ke-monitor layer wired in"
@@ -58,6 +60,21 @@ fi
 echo "[check] env template contract"
 grep -q '^PIHOLE_PASSWORD=' .env.example
 grep -q '^PIHOLE_REGEX_DENY=' .env.example
+grep -q '^UNBOUND_EXTRA_HARDENING=' .env.example
+grep -q '^DOT_TERMINATOR=' .env.example
+grep -q '^IMAGE_ROOT_PART_SIZE=' .env.example
+grep -q 'dot_terminator: \$DOT_TERMINATOR' config/ke-net-screen.yaml
+grep -q '^# X-Env-Var-dot_terminator' layer/ke-00-layer.yaml
+grep -q 'stunnel@dot' layer/ke-15-piholecfg.yaml
+grep -q 'stunnel-cert-watch.path' layer/ke-15-piholecfg.yaml
+grep -q -- '--extra-hardening' scripts/build-unbound.sh
+grep -q 'UNBOUND_EXTRA_HARDENING' ke-net-screen.sh
+
+echo "[check] unbound observability drop-in + anchored config check"
+grep -q 'statistics-interval: 3600' etc/unbound/unbound.conf.d/ke-observability.conf
+grep -q 'val-log-level: 1' etc/unbound/unbound.conf.d/ke-observability.conf
+grep -q 'ke-observability.conf' layer/ke-10-unbcfg.yaml
+grep -q 'auto-trust-anchor-file' scripts/build-unbound.sh
 grep -q 'pihole_regex_deny: \$PIHOLE_REGEX_DENY' config/ke-net-screen.yaml
 grep -q '^# X-Env-Var-pihole_regex_deny' layer/ke-00-layer.yaml
 
@@ -65,6 +82,42 @@ grep -q '^# X-Env-Var-pihole_regex_deny' layer/ke-00-layer.yaml
 # and carry the governor the health check asserts.
 echo "[check] kernel command-line drop-in"
 grep -q 'cpufreq.default_governor=schedutil' layer/ke-03-knlcfg.d/for/linux-base/cmdline.d/60-ke-appliance
+
+# Since rpi-image-gen v2.9.0, config.txt is assembled from fragments too; ours must
+# carry the appliance posture (wireless off, audio off, fan trips) or the stock
+# fragments win and the image ships with radios enabled.
+echo "[check] config.txt fragments"
+CFRAG=layer/ke-03-knlcfg.d/for/rpi-boot-firmware/config.txt.d
+grep -q 'dtoverlay=disable-wifi' "$CFRAG/50-ke-appliance"
+grep -q 'dtoverlay=disable-bt' "$CFRAG/50-ke-appliance"
+grep -q 'dtparam=audio=off' "$CFRAG/10-rpi-audio"
+grep -q 'fan_temp0=45000' "$CFRAG/63-rpi-pi5"
+test ! -f boot/firmware/config.txt
+
+echo "[check] ntp single owner + timesync fallbacks + avahi self-heal"
+grep -q '^NTP=' etc/systemd/timesyncd.conf.d/ke-timesync.conf
+grep -q '^FallbackNTP=.*216.239' etc/systemd/timesyncd.conf.d/ke-timesync.conf
+grep -qE 'active = false' etc/pihole/pihole.toml   # ntp.sync: timesyncd owns the clock
+grep -q 'Restart=on-failure' etc/systemd/system/avahi-daemon.service.d/ke-restart.conf
+grep -q 'ke-restart.conf' layer/ke-20-avhicfg.yaml
+
+echo "[check] unattended security upgrades"
+grep -q 'Unattended-Upgrade "1"' etc/apt/apt.conf.d/20auto-upgrades
+grep -q 'Debian-Security' etc/apt/apt.conf.d/52ke-unattended-upgrades
+grep -q 'unbound' etc/apt/apt.conf.d/52ke-unattended-upgrades
+grep -q 'Automatic-Reboot "false"' etc/apt/apt.conf.d/52ke-unattended-upgrades
+grep -q 'unattended-upgrades' layer/ke-03-knlcfg.yaml
+
+echo "[check] eeprom harden subcommand"
+grep -q -- '--harden' home/scripts/firmware/eeprom-update.sh
+grep -q 'BOOT_ORDER=0xf1' home/scripts/firmware/eeprom-update.sh
+grep -q -- '--unharden' home/scripts/firmware/eeprom-update.sh
+grep -q 'BOOT_ORDER=0xf41' home/scripts/firmware/eeprom-update.sh
+
+echo "[check] fan fields in the power trend record"
+grep -q 'fan_state=%s fan_rpm=%s' home/scripts/monitoring/power-report.sh
+grep -q 'fan_state' home/scripts/network/collect-appliance-logs.sh
+grep -q 'Deliberate Platform Decisions' CONFIG-OVERVIEW.md
 
 # Validate SSH policy baseline expected by this project.
 echo "[check] ssh hardening policy baseline"

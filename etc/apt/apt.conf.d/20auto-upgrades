@@ -1,0 +1,3 @@
+// ke: enable the daily unattended security pass (apt-daily*.timer driven).
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";

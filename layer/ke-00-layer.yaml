@@ -22,6 +22,18 @@
 # X-Env-Var-pihole_regex_deny-Required: n
 # X-Env-Var-pihole_regex_deny-Valid: string-or-empty
 # X-Env-Var-pihole_regex_deny-Set: y
+#
+# X-Env-Var-dot_terminator:
+# X-Env-Var-dot_terminator-Desc: y installs a DNS-over-TLS terminator (stunnel) on
+#  port 853 in front of FTL, using the certificate FTL self-generates at first boot.
+#  Android's default "Automatic" Private DNS probes the network resolver's port 853
+#  and upgrades to encrypted DNS opportunistically (no hostname validation), so
+#  default-mode phones get encrypted transport with filtering intact and zero
+#  per-device setup. n (the default) installs nothing and leaves behavior unchanged.
+#  Set from .env as DOT_TERMINATOR via config/ke-net-screen.yaml.
+# X-Env-Var-dot_terminator-Required: n
+# X-Env-Var-dot_terminator-Valid: string-or-empty
+# X-Env-Var-dot_terminator-Set: y
 # METAEND
 mmdebstrap:
   suite: trixie

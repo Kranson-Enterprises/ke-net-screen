@@ -35,6 +35,12 @@ mmdebstrap:
       REPO_ROOT=${SRCROOT:?SRCROOT is required}
       cp -a "$REPO_ROOT/etc/nsswitch.conf" "$1/etc/nsswitch.conf"
     - |
+      # Self-heal like FTL/unbound: restart drop-in from the repository.
+      # (Each hook item is its own shell: REPO_ROOT must be set here, loudly.)
+      set -eu
+      REPO_ROOT=${SRCROOT:?SRCROOT is required}
+      install -d -m 0755 "$1/etc/systemd/system/avahi-daemon.service.d"
+      install -m 0644 "$REPO_ROOT/etc/systemd/system/avahi-daemon.service.d/ke-restart.conf" "$1/etc/systemd/system/avahi-daemon.service.d/ke-restart.conf"
       install -d -m 0755 "$1/etc/avahi/services"
       cat > "$1/etc/avahi/services/http.service" <<-EOSHTTP
       <?xml version="1.0" standalone='no'?>

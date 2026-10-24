@@ -10,6 +10,7 @@ mmdebstrap:
   packages:
       - locales
       - rpi-eeprom      # bootloader images + rpi-eeprom-update, used by eeprom-update.sh
+      - unattended-upgrades   # security-only auto-patching; policy in etc/apt/apt.conf.d/
   customize-hooks:
     - |
       # Set locale to en_US.UTF-8
@@ -49,13 +50,24 @@ mmdebstrap:
       install -d -m 0755 "$1/etc/systemd/journald.conf.d"
       install -m 0644 "$REPO_ROOT/etc/systemd/journald.conf.d/ke-journald.conf" "$1/etc/systemd/journald.conf.d/ke-journald.conf"
     - |
-      # Firmware config: our config.txt replaces the rpi template (bluetooth off, headless).
-      # The kernel command line is NOT copied: since rpi-image-gen v2.8.0-88 linux-base
-      # assembles /boot/firmware/cmdline.txt from per-layer fragments in a late hook, which
-      # would overwrite a copied file. Our additions live in
-      # layer/ke-03-knlcfg.d/for/linux-base/cmdline.d/60-ke-appliance (static drop-in).
+      # Unattended security upgrades: enable the daily pass and ship the policy
+      # (security origins only, unbound blacklisted for the diversions, no
+      # automatic reboot). Loud install: missing policy must fail the build.
+      set -eu
       REPO_ROOT=${SRCROOT:?SRCROOT is required}
-      cp "$REPO_ROOT/boot/firmware/config.txt" "$1/boot/firmware" 2>/dev/null || true
+      install -d -m 0755 "$1/etc/apt/apt.conf.d"
+      install -m 0644 "$REPO_ROOT/etc/apt/apt.conf.d/20auto-upgrades" "$1/etc/apt/apt.conf.d/20auto-upgrades"
+      install -m 0644 "$REPO_ROOT/etc/apt/apt.conf.d/52ke-unattended-upgrades" "$1/etc/apt/apt.conf.d/52ke-unattended-upgrades"
+    - |
+      # Firmware config: since rpi-image-gen v2.9.0 BOTH boot files are assembled from
+      # per-layer fragments in late hooks (cmdline at v2.8.0-88, config.txt at v2.9.0),
+      # so nothing is copied here — a copied file would be overwritten. Our settings live
+      # as static drop-ins under layer/ke-03-knlcfg.d/for/:
+      #   linux-base/cmdline.d/60-ke-appliance                (kernel command line)
+      #   rpi-boot-firmware/config.txt.d/{10-rpi-audio,20-rpi-camera,30-rpi-display,
+      #     63-rpi-pi5,50-ke-appliance}  (same-name fragments REPLACE the stock ones
+      #     in place; 50-ke-appliance appends the wireless-off overlays etc.)
+      true
     - |
       # Bootloader EEPROM helper (~/scripts/eeprom-update.sh): shows the installed bootloader
       # against the channel's latest and stages an update only on request. The boot-time

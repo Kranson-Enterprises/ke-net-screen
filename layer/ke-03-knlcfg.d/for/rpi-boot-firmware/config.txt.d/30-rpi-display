@@ -1,0 +1,8 @@
+
+# ke: display stack for the boot splash only; audio-less KMS (replaces stock)
+display_auto_detect=1
+dtoverlay=vc4-kms-v3d,noaudio
+dtoverlay=
+max_framebuffers=2
+disable_fw_kms_setup=1
+disable_overscan=1

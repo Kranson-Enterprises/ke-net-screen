@@ -60,7 +60,7 @@ flowchart TD
 AdBlock and Privacy Stripped Recursive DNS Resolver image builder using rpi-image-gen, pi-hole, unbound. Additional configuration of Avahi-daemon for local services discovery such as screen cast, printers, other '.local' services.
 
 **Repository:** kranson-enterprises/ke-net-screen
-**Purpose:** Custom Raspberry Pi image builder combining rpi-image-gen with Pi-hole, Unbound, and Avahi-daemon for a local DNS and media server.
+**Purpose:** Custom Raspberry Pi image builder combining rpi-image-gen with Pi-hole, Unbound, and Avahi-daemon for a dedicated local DNS appliance.
 
 The MIT license in this repository applies to the original ke-net-screen code and documentation; bundled submodules and other third-party components remain under their own licenses.
 
@@ -310,6 +310,8 @@ dig @127.0.0.1 github.com
 # Hourly monitors (first run 5 min after boot): journald holds one record per run,
 # the full reports are in /var/log/net-snapshot.log and /var/log/power-report.log
 systemctl list-timers 'net-snapshot*' 'power-report*' 'ke-maintenance*'
+# schedule (or remove) a periodic proving reboot: sudo schedule-reboot.sh
+# why mitigations=off / no swap / single NTP owner: CONFIG-OVERVIEW.md "Deliberate Platform Decisions"
 journalctl -u net-snapshot.service -u power-report.service -o cat --no-pager | tail -n 4
 ```
 
@@ -336,6 +338,12 @@ image's CSV is unchanged.
 
 Set `PIHOLE_REGEX_DENY` in `.env` (for example `^wpad\.`) to import Pi-hole regex deny entries
 on first boot; it is empty by default. On the appliance, `~/scripts/wpad-block.sh --on` or `--off`
+
+Two more `.env` toggles follow the same pattern (default off; development/production enable
+them): `UNBOUND_EXTRA_HARDENING=y` compiles the source-built Unbound with fortify level 3 and
+stack-clash protection (toolchain-probed; the build stops rather than silently shipping
+without them), and `DOT_TERMINATOR=y` serves DNS-over-TLS on port 853 via stunnel with FTL's
+own certificate, which default-mode Android/Apple Private DNS picks up opportunistically.
 toggles the WPAD entry at run time with a domain-list backup in `~/pihole-backups/` and a
 `--restore` path. See CONFIG-OVERVIEW for how the `ke.` variables flow from `.env` to the layers.
 

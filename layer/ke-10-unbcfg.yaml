@@ -63,3 +63,6 @@ mmdebstrap:
       REPO_ROOT=${SRCROOT:?SRCROOT is required}
       install -d -m 0755 "$1/etc/unbound/unbound.conf.d/"
       cp -a "$REPO_ROOT/etc/unbound/unbound.conf.d/pi-hole.conf" "$1/etc/unbound/unbound.conf.d/pi-hole.conf"
+      # Persistent observability (hourly stats blocks + DNSSEC-failure logging);
+      # same hook item so REPO_ROOT is in scope (hook-split lesson).
+      cp -a "$REPO_ROOT/etc/unbound/unbound.conf.d/ke-observability.conf" "$1/etc/unbound/unbound.conf.d/ke-observability.conf"

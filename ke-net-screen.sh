@@ -181,6 +181,12 @@ if [[ -f "$ENV_FILE" ]]; then
   source "$ENV_FILE"
   # Optional keys: an unset placeholder must still expand (to empty) in the config.
   export PIHOLE_REGEX_DENY="${PIHOLE_REGEX_DENY:-}"
+  # Unbound extra toolchain hardening (fortify 3 + stack-clash): y/n toggle from
+  # .env; default off so builds stay portable to toolchains without support.
+  export UNBOUND_EXTRA_HARDENING="${UNBOUND_EXTRA_HARDENING:-n}"
+  # DNS-over-TLS terminator on 853 (stunnel in front of FTL, FTL's own cert):
+  # y/n toggle from .env; default off = nothing installed, behavior unchanged.
+  export DOT_TERMINATOR="${DOT_TERMINATOR:-n}"
   set +a
 fi
 

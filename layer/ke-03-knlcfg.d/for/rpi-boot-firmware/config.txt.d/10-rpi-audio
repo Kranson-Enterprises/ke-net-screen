@@ -1,0 +1,3 @@
+
+# ke: audio stays off on the DNS appliance (replaces the stock enable)
+dtparam=audio=off

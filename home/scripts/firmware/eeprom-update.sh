@@ -9,6 +9,15 @@
 #   sudo ./eeprom-update.sh --apply           # stage the channel's latest image (rpi-eeprom-update -a), then ask to reboot
 #   sudo ./eeprom-update.sh --apply --reboot  # stage and reboot without asking (unattended)
 #   sudo ./eeprom-update.sh --clear           # remove a staged, not yet applied update from the boot partition
+#   sudo ./eeprom-update.sh --harden          # appliance bootloader config: BOOT_ORDER=0xf1 (SD only),
+#                                             # POWER_OFF_ON_HALT=1, WAKE_ON_GPIO=0 — shows the diff and
+#                                             # asks before staging; flashed on the next reboot
+#   sudo ./eeprom-update.sh --unharden        # revert to the Pi 5 defaults: BOOT_ORDER=0xf41 (SD, then
+#                                             # USB, repeat), POWER_OFF_ON_HALT=0, WAKE_ON_GPIO=1 — for
+#                                             # operators who need USB boot back. If the device no longer
+#                                             # boots at all, neither option helps from here: write the
+#                                             # Raspberry Pi Imager "EEPROM recovery" image to an SD card
+#                                             # and boot it once — the bootloader always runs SD recovery.
 #   ./eeprom-update.sh --help
 #
 # How it applies: rpi-eeprom-update writes recovery.bin + pieeprom.upd/.sig to the boot
@@ -29,7 +38,9 @@ while (( $# )); do
         --apply)   MODE=apply ;;
         --reboot)  REBOOT=1 ;;
         --clear)   MODE=clear ;;
-        -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --harden)  MODE=harden ;;
+        --unharden) MODE=unharden ;;
+        -h|--help) sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "eeprom-update.sh: unknown argument '$1' (see --help)" >&2; exit 2 ;;
     esac
     shift
@@ -98,5 +109,53 @@ case "$MODE" in
         else
             emit "  not a terminal; the update applies at the next boot (or rerun with --reboot)"
         fi
+        exit 0 ;;
+    harden|unharden)
+        (( EUID == 0 )) || die "--$MODE needs root (sudo)"
+        command -v rpi-eeprom-config >/dev/null 2>&1 || die "rpi-eeprom-config not found"
+        CONF=$(rpi-eeprom-config 2>/dev/null) || die "could not read the current bootloader config"
+        emit "--- current bootloader config ---"
+        printf '%s\n' "$CONF" | tee -a "$LOG_FILE"
+        if [[ "$MODE" == harden ]]; then
+            WANT="BOOT_ORDER=0xf1 POWER_OFF_ON_HALT=1 WAKE_ON_GPIO=0"
+        else
+            WANT="BOOT_ORDER=0xf41 POWER_OFF_ON_HALT=0 WAKE_ON_GPIO=1"
+        fi
+        NEWCONF="$CONF"
+        CHANGES=0
+        for kv in $WANT; do
+            k=${kv%%=*}; v=${kv#*=}
+            cur=$(sed -n "s/^${k}=//p" <<<"$NEWCONF" | head -1)
+            if [[ "$cur" == "$v" ]]; then
+                emit "  $k already $v"
+            elif [[ -n "$cur" ]]; then
+                NEWCONF=$(sed "s/^${k}=.*/${k}=${v}/" <<<"$NEWCONF")
+                emit "  $k: $cur -> $v"; CHANGES=1
+            else
+                NEWCONF+=$'\n'"${k}=${v}"
+                emit "  $k: (unset) -> $v"; CHANGES=1
+            fi
+        done
+        (( CHANGES )) || { emit "  nothing to change; bootloader already in the $MODE state"; exit 0; }
+        if [[ "$MODE" == harden ]]; then
+            emit "  Effect: boot from SD only (retry forever; no USB/NVMe/network boot without"
+            emit "  re-editing the EEPROM), and a halted board drops to ~0 W instead of ~1.2 W."
+            emit "  Revert later with: sudo $(basename "$0") --unharden"
+        else
+            emit "  Effect: Pi 5 default boot behaviour restored — SD first, then USB, repeat;"
+            emit "  halt keeps standby power so GPIO wake works again."
+        fi
+        if [[ -t 0 ]]; then
+            read -r -p "  Stage this bootloader config now? [y/N]: " ans
+            [[ "${ans,,}" =~ ^y ]] || { emit "  aborted; nothing staged"; exit 0; }
+        else
+            die "--harden is interactive; run it from a terminal"
+        fi
+        TMPC=$(mktemp)
+        printf '%s\n' "$NEWCONF" > "$TMPC"
+        rpi-eeprom-config --apply "$TMPC" 2>&1 | tee -a "$LOG_FILE"
+        rm -f "$TMPC"
+        [[ -f "$BOOTFS/pieeprom.upd" ]] || die "rpi-eeprom-config --apply finished but nothing is staged"
+        emit "  staged OK; the config is flashed on the next reboot. Verify after: rpi-eeprom-config"
         exit 0 ;;
 esac

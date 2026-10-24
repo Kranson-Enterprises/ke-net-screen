@@ -57,6 +57,11 @@ Options:
   --with-pihole-conf-check  Validate staged pi-hole.conf using staged unbound-checkconf
   --fresh-build             Delete .unbound-build cache before configure/build
   --no-prompt               Reuse cache without interactive delete prompt
+  --extra-hardening         Compile with -D_FORTIFY_SOURCE=3 and -fstack-clash-protection
+                            (also enabled by UNBOUND_EXTRA_HARDENING=y from .env). The
+                            toolchain is probed first; if it does not support both, the
+                            build STOPS rather than silently shipping without them.
+                            Default off so the build stays portable to older toolchains.
   --help                    Show this help text
 EOF
 }
@@ -84,6 +89,7 @@ OUTDIR="$(cd "$OUTDIR" && pwd)"
 WITH_PIHOLE_CONF_CHECK=0
 FRESH_BUILD=0
 NO_PROMPT=0
+EXTRA_HARDENING=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --with-pihole-conf-check)
@@ -96,6 +102,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-prompt)
       NO_PROMPT=1
+      shift
+      ;;
+    --extra-hardening)
+      EXTRA_HARDENING=1
       shift
       ;;
     --help|-h)
@@ -140,6 +150,12 @@ echo "==> Staging target: $STAGING_DIR"
 # its TCP sockets.  The kernel must also allow server-side TFO
 # (net.ipv4.tcp_fastopen bit 0x2 - 99-unbound-tuning.conf sets 3).
 UNBOUND_ENABLE_TFO_SERVER="${UNBOUND_ENABLE_TFO_SERVER:-n}"
+# Extra toolchain hardening (fortify 3 + stack-clash) from .env, same y/n style;
+# the --extra-hardening flag also enables it.
+UNBOUND_EXTRA_HARDENING="${UNBOUND_EXTRA_HARDENING:-n}"
+if [[ "${UNBOUND_EXTRA_HARDENING,,}" =~ ^y(es)?$ ]]; then
+  EXTRA_HARDENING=1
+fi
 EXTRA_CONFIGURE_ARGS=()
 if [[ "${UNBOUND_ENABLE_TFO_SERVER,,}" =~ ^y(es)?$ ]]; then
   EXTRA_CONFIGURE_ARGS+=(--enable-tfo-server)
@@ -179,9 +195,9 @@ fi
 # Configure (once; re-runs automatically if the configure script or the
 # chosen configure options change)
 # ---------------------------------------------------------------------------
-CONF_SRC_HASH="$(printf '%s %s' \
+CONF_SRC_HASH="$(printf '%s %s %s' \
   "$(sha256sum "$VENDOR_SRC/configure" | awk '{print $1}')" \
-  "${EXTRA_CONFIGURE_ARGS[*]:-}" | sha256sum | awk '{print $1}')"
+  "${EXTRA_CONFIGURE_ARGS[*]:-}" "harden=$EXTRA_HARDENING" | sha256sum | awk '{print $1}')"
 
 reconfigure=0
 if [[ ! -f "$CONF_MARKER" ]]; then
@@ -219,6 +235,37 @@ if [[ $reconfigure -eq 1 ]]; then
   # PIE is already the Debian/arm64 toolchain default, so it needs no flag here.
   HARDEN_CFLAGS="-O2 -fstack-protector-strong -D_FORTIFY_SOURCE=2"
   HARDEN_LDFLAGS="-Wl,-z,relro,-z,now"
+
+  # --extra-hardening / UNBOUND_EXTRA_HARDENING=y: fortify level 3 (covers
+  # dynamically sized buffers, needs gcc>=12 + glibc>=2.34) and stack-clash
+  # protection (stack probes so a huge allocation cannot jump the guard page).
+  # Probe the actual toolchain first: __USE_FORTIFY_LEVEL proves the libc
+  # really implements level 3 (older glibc silently degrades it to 2), and an
+  # unknown -fstack-clash-protection is a hard compiler error. If the probe
+  # fails the build STOPS: the operator asked for hardening, so we never
+  # silently ship without it. Turn the option off to build on old toolchains.
+  if [[ $EXTRA_HARDENING -eq 1 ]]; then
+    probe_dir="$(mktemp -d)"
+    cat > "$probe_dir/probe.c" <<'EOPROBE'
+#include <string.h>
+#if !defined(__USE_FORTIFY_LEVEL) || __USE_FORTIFY_LEVEL < 3
+#error "this glibc/compiler does not implement _FORTIFY_SOURCE=3"
+#endif
+int main(void) { char b[8]; memset(b, 0, sizeof b); return (int)b[0]; }
+EOPROBE
+    if ${CC:-cc} -O2 -D_FORTIFY_SOURCE=3 -fstack-clash-protection -Werror \
+         "$probe_dir/probe.c" -o "$probe_dir/probe" 2> "$probe_dir/probe.err"; then
+      HARDEN_CFLAGS="-O2 -fstack-protector-strong -D_FORTIFY_SOURCE=3 -fstack-clash-protection"
+      echo "==> Extra hardening: enabled (-D_FORTIFY_SOURCE=3 -fstack-clash-protection; toolchain probe passed)"
+      rm -rf "$probe_dir"
+    else
+      echo "ERROR: --extra-hardening requested but the toolchain failed the probe:" >&2
+      sed 's/^/    /' "$probe_dir/probe.err" >&2
+      echo "    Set UNBOUND_EXTRA_HARDENING=n (or drop --extra-hardening) to build on this toolchain." >&2
+      rm -rf "$probe_dir"
+      exit 1
+    fi
+  fi
 
   CFLAGS="$HARDEN_CFLAGS" LDFLAGS="$HARDEN_LDFLAGS" "$VENDOR_SRC/configure" \
     --prefix=/usr \
@@ -276,8 +323,32 @@ if [[ $WITH_PIHOLE_CONF_CHECK -eq 1 ]]; then
 
   install -d -m 0755 "$(dirname "$STAGED_PIHOLE_CONF")"
   cp -a "$PIHOLE_CONF_SRC" "$STAGED_PIHOLE_CONF"
+  STAGED_OBS_CONF="$STAGING_DIR/etc/unbound/unbound.conf.d/ke-observability.conf"
+  cp -a "$PROJECT_ROOT/etc/unbound/unbound.conf.d/ke-observability.conf" "$STAGED_OBS_CONF"
 
-  echo "==> Validating staged Pi-hole config with unbound-checkconf"
-  "$CHECKCONF_BIN" "$STAGED_PIHOLE_CONF" >/dev/null
-  echo "==> Pi-hole config check passed: $STAGED_PIHOLE_CONF"
+  # Validate the config fragments TOGETHER and with a trust anchor present, the
+  # way the device runs them. Checking pi-hole.conf alone made checkconf warn
+  # "no DNSSEC trust anchors configured" — a build-stage artifact: at runtime
+  # Debian's root-auto-trust-anchor-file.conf + the unit's anchor-update
+  # pre-start (ExecStartPre=- : failures ignored = passive fallback) provide
+  # the anchor. Seed one here with the staged unbound-anchor's compiled-in
+  # root key (no network needed for the initial write).
+  echo "==> Validating staged unbound config (full set, seeded trust anchor)"
+  CHECK_TMP="$(mktemp -d)"
+  "$STAGING_DIR/usr/sbin/unbound-anchor" -a "$CHECK_TMP/root.key" >/dev/null 2>&1 || true
+  if [[ -s "$CHECK_TMP/root.key" ]]; then
+    ANCHOR_LINE="    auto-trust-anchor-file: \"$CHECK_TMP/root.key\""
+  else
+    echo "WARN: could not seed a root key for the check; validating without an anchor" >&2
+    ANCHOR_LINE="    # no anchor seeded"
+  fi
+  cat > "$CHECK_TMP/check.conf" <<EOCHK
+server:
+$ANCHOR_LINE
+include: "$STAGED_PIHOLE_CONF"
+include: "$STAGED_OBS_CONF"
+EOCHK
+  "$CHECKCONF_BIN" "$CHECK_TMP/check.conf" >/dev/null
+  rm -rf "$CHECK_TMP"
+  echo "==> unbound config check passed: pi-hole.conf + ke-observability.conf (anchored)"
 fi
