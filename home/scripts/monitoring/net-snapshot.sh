@@ -13,7 +13,8 @@
 #
 # Record: snapshot ts=<ISO> ip_in= udp_in= udp_noport= udp_in_err= udp_rcvbuf_err= tcp_pass=
 #         tcp_act= tcp_retrans= tcp_listen_drop= tcp_listen_overflow= v6_noroute= ra_in=
-#         listeners= estab=
+#         listeners= estab= gw_up= upstream_ok=   (reachability fields appended since
+#         v0.3.6: 1/0 from single 2 s pings to the default gateway and 1.1.1.1; na = no ping)
 #         Counters are absolute since boot (nstat -a), so a week of load or loss is the
 #         difference between two records:  grep '^snapshot ' /var/log/net-snapshot.log | sed -n '1p;$p'
 #         A counter that nstat omits (zero, without -z) prints as 0.
@@ -95,6 +96,17 @@ printf '%s\n' "$ESTAB" | body
 # emit "--- recent martian/redirect kernel signals (needs 60-net-observe.conf) ---"
 # journalctl -k --since "1 hour ago" 2>/dev/null | grep -iE 'martian|redirect' | tail -20 | body || true
 
+# Reachability: one 2 s ping each to the default gateway and an internet anchor, so a
+# WAN or gateway outage is a first-class 0 in hourly history instead of a forensic
+# reconstruction (the 2026-10-24 and 10-26 gateway outages were rebuilt from RA deltas).
+GW_IP=$(ip route show default 2>/dev/null | awk '{print $3; exit}')
+GW_UP=na; UPSTREAM_OK=na
+if command -v ping >/dev/null 2>&1; then
+    if [[ -n "$GW_IP" ]]; then ping -c1 -W2 "$GW_IP" >/dev/null 2>&1 && GW_UP=1 || GW_UP=0; fi
+    ping -c1 -W2 1.1.1.1 >/dev/null 2>&1 && UPSTREAM_OK=1 || UPSTREAM_OK=0
+fi
+emit "--- path: gateway(${GW_IP:-?})=$GW_UP internet(1.1.1.1)=$UPSTREAM_OK ---"
+
 # One grep-able record per run (see header). The only line journald sees under --journal-summary.
 cnt() { local v; v=$(awk -v k="$1" '$1 == k { print $2; exit }' <<<"$NSTAT_OUT"); echo "${v:-0}"; }
 n_listen=$(grep -c . <<<"$LISTENERS" || true)
@@ -104,8 +116,9 @@ if [[ -n "$NSTAT_OUT" ]]; then
         "${TS// /T}" "$(cnt IpInReceives)" "$(cnt UdpInDatagrams)" "$(cnt UdpNoPorts)" "$(cnt UdpInErrors)" "$(cnt UdpRcvbufErrors)" \
         "$(cnt TcpPassiveOpens)" "$(cnt TcpActiveOpens)" "$(cnt TcpRetransSegs)" "$(cnt TcpExtListenDrops)" "$(cnt TcpExtListenOverflows)" \
         "$(cnt Ip6OutNoRoutes)" "$(cnt Icmp6InRouterAdvertisements)" "$n_listen" "$n_estab")
+    RECORD="$RECORD gw_up=$GW_UP upstream_ok=$UPSTREAM_OK"
 else
-    RECORD="snapshot ts=${TS// /T} nstat=unavailable listeners=$n_listen estab=$n_estab"
+    RECORD="snapshot ts=${TS// /T} nstat=unavailable listeners=$n_listen estab=$n_estab gw_up=$GW_UP upstream_ok=$UPSTREAM_OK"
 fi
 emit
 record "$RECORD"

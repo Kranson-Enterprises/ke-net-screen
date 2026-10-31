@@ -253,6 +253,7 @@ mkdir -p "$T/logs"
     sec "this boot: warnings and errors (last 40)"; journalctl -b -p warning -q --no-pager 2>/dev/null | tail -n 40 || true
 } > "$T/host-info.txt" 2>&1
 for f in /var/log/dns-health.log /var/log/dns-health.log.1 /var/log/net-snapshot.log /var/log/net-snapshot.log.1 \
+         /var/log/stunnel-dot.log \
          /var/log/power-report.log /var/log/power-report.log.1; do
     [[ -r "$f" ]] && cp -p "$f" "$T/logs/" 2>/dev/null
 done
@@ -304,13 +305,23 @@ if [[ -f "$LOGS/dns-health.log" ]]; then
 fi
 if [[ -f "$LOGS/power-report.log" ]]; then
     echo "  power:  $(grep '^trend ' "$LOGS/power-report.log" | tail -1 || echo 'no trend records')"
-    # DoT terminator adoption (if the journal has stunnel accept lines). The same event
-    # can appear under two syslog tags on pre-syslog=no images, so dedupe on ip:port.
-    DOT_PEERS=$(grep -oE 'dns-over-tls\] accepted connection from [0-9a-fA-F:.]+' "$JOURNAL" 2>/dev/null \
-        | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+' | sort -u) || true
-    if [[ -n "${DOT_PEERS:-}" ]]; then
-        DOT_BY_IP=$(cut -d: -f1 <<<"$DOT_PEERS" | sort | uniq -c | sort -rn)
-        echo "  dot:    $(wc -l <<<"$DOT_PEERS") TLS connection(s) from $(wc -l <<<"$DOT_BY_IP") client(s): $(awk '{printf "%s(%s) ", $2, $1}' <<<"$DOT_BY_IP" | head -c 120)"
+    # DoT terminator adoption. Post-2026-10 images route stunnel to /var/log/stunnel-dot.log
+    # (journald quiet); older images logged to the journal under two syslog tags. Prefer the
+    # file; fall back to the journal. These lines are the only per-client DoT attribution
+    # (FTL sees all tunneled queries as 127.0.0.1).
+    DOT_SRC=""; DOT_LABEL=""
+    if [[ -s "$LOGS/stunnel-dot.log" ]]; then
+        DOT_SRC="$LOGS/stunnel-dot.log"; DOT_LABEL="file since last rotation"
+    elif [[ -n "${JOURNAL:-}" && -s "${JOURNAL:-/nonexistent}" ]]; then
+        DOT_SRC="$JOURNAL"; DOT_LABEL="journal window"
+    fi
+    if [[ -n "$DOT_SRC" ]]; then
+        DOT_PEERS=$(grep -oE 'dns-over-tls\] accepted connection from [0-9a-fA-F:.]+' "$DOT_SRC" 2>/dev/null \
+            | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+' | sort -u) || true
+        if [[ -n "${DOT_PEERS:-}" ]]; then
+            DOT_BY_IP=$(cut -d: -f1 <<<"$DOT_PEERS" | sort | uniq -c | sort -rn)
+            echo "  dot:    $(wc -l <<<"$DOT_PEERS") TLS connection(s) from $(wc -l <<<"$DOT_BY_IP") client(s) [$DOT_LABEL]: $(awk '{printf "%s(%s) ", $2, $1}' <<<"$DOT_BY_IP" | head -c 120)"
+        fi
     fi
 
     grep '^trend ' "$LOGS/power-report.log" | awk '{for(i=2;i<=NF;i++){split($i,kv,"="); if(kv[1]=="est_w") e+=kv[2]; if(kv[1]=="soc_c") t+=kv[2]; if(kv[1]=="fan_state"){fs++; if(kv[2]+0>0) fon++}}; n++} END{if(n) { printf "          %d runs: mean est-input %.3f W (%.2f kWh/yr), mean SoC %.1f C", n, e/n, e/n*8.76, t/n; if(fs) printf ", fan on %d/%d", fon, fs; printf "\n"}}'

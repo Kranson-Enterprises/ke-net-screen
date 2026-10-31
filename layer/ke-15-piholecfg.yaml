@@ -259,20 +259,61 @@ mmdebstrap:
       set -eu
       if [ "${IGconf_ke_dot_terminator:-n}" = "y" ]; then
         chroot "$1" apt-get -y install stunnel4
+        # Mask the package's legacy SysV service name: silences the sysv-generator's
+        # per-boot "lacks a native systemd unit file" complaints (8/boot observed) and
+        # closes the latent dual-start path (the init script would launch EVERY
+        # /etc/stunnel/*.conf, racing stunnel@dot for port 853 if ever enabled).
+        ln -sf /dev/null "$1/etc/systemd/system/stunnel4.service"
         install -d -m 0755 "$1/etc/stunnel"
         cat > "$1/etc/stunnel/dot.conf" <<-EODOT
       ; ke: DNS-over-TLS terminator in front of pihole-FTL (see layer/ke-15-piholecfg.yaml)
       ; foreground is REQUIRED: the packaged stunnel@.service is Type=simple, so a
       ; backgrounding stunnel gets reaped by systemd 38 ms after the fork (observed).
-      foreground = yes
+      ; "quiet" keeps the process foreground WITHOUT copying logs to stderr —
+      ; otherwise every connection line lands in the journal despite output=
+      ; (observed 2026-10-30), defeating the quiet-journald goal.
+      foreground = quiet
       ; foreground logs to stderr -> journald; without this, syslog duplicates
       ; every line under a second tag (observed: 2x per event on first boot).
       syslog = no
+      ; Per-connection logs (the only per-client DoT attribution — FTL sees all DoT
+      ; queries as 127.0.0.1) go to their own file, keeping journald quiet. Rotation
+      ; via /etc/logrotate.d/stunnel-dot; the collector packages and parses the file.
+      output = /var/log/stunnel-dot.log
+      ; Privilege drop: the certificate is loaded and 853 bound during the root
+      ; configuration phase, THEN stunnel setuids. The OUTPUT LOG however is
+      ; opened AFTER the drop (learned on first boot 2026-10-30: cannot-open-log
+      ; restart loop), so the tmpfiles entry below pre-creates it owned by the
+      ; service account. verify-certs.sh proves the served cert matches the file.
+      setuid = stunnel4
+      setgid = stunnel4
+      ; Declarative TLS floor: today's behavior comes from the system OpenSSL policy
+      ; (1.1 refused, 1.3 preferred); pin it so a future policy change cannot
+      ; silently lower it. 1.2 stays served for older DoT clients.
+      sslVersionMin = TLSv1.2
       [dns-over-tls]
       accept = :::853
       connect = 127.0.0.1:53
       cert = /etc/pihole/tls.pem
       EODOT
+        # stunnel opens its output log AFTER the setuid drop; the service account
+        # cannot create files in /var/log, so guarantee the file every boot.
+        install -d -m 0755 "$1/etc/tmpfiles.d"
+        echo "f /var/log/stunnel-dot.log 0640 stunnel4 adm -" > "$1/etc/tmpfiles.d/stunnel-dot.conf"
+        # ...and in the image itself for the very first boot (tmpfiles also covers it;
+        # run install inside the chroot so stunnel4 resolves against ITS passwd):
+        chroot "$1" install -o stunnel4 -g adm -m 640 /dev/null /var/log/stunnel-dot.log
+        cat > "$1/etc/logrotate.d/stunnel-dot" <<-EOROT
+      /var/log/stunnel-dot.log {
+          weekly
+          rotate 4
+          compress
+          delaycompress
+          missingok
+          notifempty
+          copytruncate
+      }
+      EOROT
         install -d -m 0755 "$1/etc/systemd/system/stunnel@dot.service.d"
         cat > "$1/etc/systemd/system/stunnel@dot.service.d/ke.conf" <<-EODRP
       [Unit]

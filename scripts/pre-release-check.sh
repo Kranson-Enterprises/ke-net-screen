@@ -19,6 +19,7 @@ bash -n home/scripts/network/collect-appliance-logs.sh
 bash -n home/scripts/firmware/eeprom-update.sh
 bash -n home/scripts/maintenance/ke-maintenance.sh
 bash -n home/scripts/maintenance/schedule-reboot.sh
+bash -n home/scripts/maintenance/verify-certs.sh
 bash -n home/scripts/pihole/wpad-block.sh
 bash -n home/scripts/pihole/export-adlist.sh
 bash -n home/scripts/pihole/import-adlist.sh
@@ -67,6 +68,15 @@ grep -q 'dot_terminator: \$DOT_TERMINATOR' config/ke-net-screen.yaml
 grep -q '^# X-Env-Var-dot_terminator' layer/ke-00-layer.yaml
 grep -q 'stunnel@dot' layer/ke-15-piholecfg.yaml
 grep -q 'stunnel-cert-watch.path' layer/ke-15-piholecfg.yaml
+grep -q 'output = /var/log/stunnel-dot.log' layer/ke-15-piholecfg.yaml
+grep -q 'logrotate.d/stunnel-dot' layer/ke-15-piholecfg.yaml
+grep -q 'stunnel-dot.log' home/scripts/network/collect-appliance-logs.sh
+grep -q 'setuid = stunnel4' layer/ke-15-piholecfg.yaml
+grep -q 'stunnel4.service' layer/ke-15-piholecfg.yaml   # legacy sysv mask
+grep -q 'sslVersionMin = TLSv1.2' layer/ke-15-piholecfg.yaml
+grep -q 'tmpfiles.d/stunnel-dot.conf' layer/ke-15-piholecfg.yaml
+grep -q 'foreground = quiet' layer/ke-15-piholecfg.yaml
+grep -q 'verify-certs.sh' layer/ke-25-monitor.yaml
 grep -q -- '--extra-hardening' scripts/build-unbound.sh
 grep -q 'UNBOUND_EXTRA_HARDENING' ke-net-screen.sh
 
@@ -116,6 +126,7 @@ grep -q 'BOOT_ORDER=0xf41' home/scripts/firmware/eeprom-update.sh
 
 echo "[check] fan fields in the power trend record"
 grep -q 'fan_state=%s fan_rpm=%s' home/scripts/monitoring/power-report.sh
+grep -q 'gw_up=' home/scripts/monitoring/net-snapshot.sh
 grep -q 'fan_state' home/scripts/network/collect-appliance-logs.sh
 grep -q 'Deliberate Platform Decisions' CONFIG-OVERVIEW.md
 

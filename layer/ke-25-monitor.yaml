@@ -91,6 +91,11 @@ mmdebstrap:
       # Operator tool: interactive scheduled-reboot management (systemd timer at 05:10;
       # shows the full cron+timer schedule before any change; see its header).
       install -m 0755 "$REPO_ROOT/home/scripts/maintenance/schedule-reboot.sh" "$1/usr/local/bin/schedule-reboot.sh"
+      # Certificate/key-material verification across all loaders (pihole 443, stunnel
+      # 853, unbound anchor+control certs; avahi reported as none-by-design). Also the
+      # single place that documents the host's TLS centralization for a future
+      # enterprise certificate (see its header).
+      install -m 0755 "$REPO_ROOT/home/scripts/maintenance/verify-certs.sh" "$1/usr/local/bin/verify-certs.sh"
       install -m 0644 "$REPO_ROOT/etc/systemd/system/ke-maintenance.service" "$1/etc/systemd/system/ke-maintenance.service"
       install -m 0644 "$REPO_ROOT/etc/systemd/system/ke-maintenance.timer" "$1/etc/systemd/system/ke-maintenance.timer"
       ln -sf "/etc/systemd/system/ke-maintenance.timer" "$1/etc/systemd/system/timers.target.wants/ke-maintenance.timer"
