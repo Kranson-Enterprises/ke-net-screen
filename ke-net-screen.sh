@@ -317,7 +317,7 @@ if [[ $BUILD_ONLY -eq 0 ]]; then
     # any failure as advisory.
     if [[ "${KE_FLASH_DISCARD:-0}" == 1 ]]; then
       echo "KE_FLASH_DISCARD=1: discarding $SD_DEVICE in 1 GiB steps (may take a while)"
-      sudo blkdiscard -f --step 1G "$SD_DEVICE" \
+      sudo blkdiscard -f -v --step 1G "$SD_DEVICE" \
         && echo "blkdiscard completed" \
         || echo "blkdiscard failed or unsupported; continuing with the dd wipe"
       sleep 3   # let the card settle and udev re-read before the next step

@@ -324,11 +324,15 @@ mmdebstrap:
       Restart=on-failure
       RestartSec=5
       EODRP
-        # Certificate rotation: FTL regenerates /etc/pihole/tls.pem when it expires
-        # (~47-day validity), but stunnel keeps serving the certificate it loaded.
-        # A path unit watches the file and try-restarts the terminator on change;
-        # try-restart is a no-op while stunnel@dot is inactive, so this also stays
-        # quiet before first boot enables the service.
+        # Certificate rotation: FTL rotates /etc/pihole/tls.pem ~2 days BEFORE expiry
+        # (daily runtime check; ~47-day validity; FTL-issued certs only), but stunnel
+        # keeps serving the certificate it loaded. A path unit watches the file; a
+        # guard compares the SERVED cert's fingerprint to the file and restarts the
+        # terminator only on a real change — PathChanged also fires on every boot
+        # (FTL opens the pem rw at startup) and on extent rewrites, and each needless
+        # restart drops all live DoT sessions. Any probe/parse failure falls through
+        # to try-restart, which is a no-op while stunnel@dot is inactive, so this
+        # also stays quiet before first boot enables the service.
         cat > "$1/etc/systemd/system/stunnel-cert-watch.path" <<-EOPTH
       [Unit]
       Description=Restart the DNS-over-TLS terminator when FTL rotates its certificate
@@ -339,13 +343,35 @@ mmdebstrap:
       [Install]
       WantedBy=multi-user.target
       EOPTH
+        install -d -m 0755 "$1/usr/local/sbin"
+        cat > "$1/usr/local/sbin/stunnel-cert-guard.sh" <<-'EOGRD'
+      #!/bin/bash
+      # stunnel-cert-guard.sh — run by stunnel-cert-watch.service on tls.pem changes.
+      # Restart the DoT terminator ONLY when the on-disk certificate differs from the
+      # one stunnel is serving on 853; boot-time rw-opens and extent rewrites fire
+      # PathChanged without changing content, and each needless restart drops every
+      # live DoT session. Any probe or parse failure falls through to try-restart
+      # (a no-op while stunnel@dot is inactive).
+      set -u
+      PEM=/etc/pihole/tls.pem
+      file_fp=$(openssl x509 -in "$PEM" -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2)
+      served_fp=$(echo | timeout 8 openssl s_client -connect 127.0.0.1:853 2>/dev/null \
+          | openssl x509 -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2)
+      if [[ -n "$file_fp" && -n "$served_fp" && "$file_fp" == "$served_fp" ]]; then
+          echo "tls.pem event, fingerprint unchanged — stunnel restart skipped"
+          exit 0
+      fi
+      echo "tls.pem changed (file=${file_fp:-unreadable} served=${served_fp:-no-probe}) — restarting stunnel@dot"
+      exec /usr/bin/systemctl try-restart stunnel@dot.service
+      EOGRD
+        chmod 0755 "$1/usr/local/sbin/stunnel-cert-guard.sh"
         cat > "$1/etc/systemd/system/stunnel-cert-watch.service" <<-EOPSV
       [Unit]
-      Description=Reload stunnel@dot after a certificate change
+      Description=Reload stunnel@dot after a certificate change (fingerprint-guarded)
 
       [Service]
       Type=oneshot
-      ExecStart=/usr/bin/systemctl try-restart stunnel@dot.service
+      ExecStart=/usr/local/sbin/stunnel-cert-guard.sh
       EOPSV
         install -d -m 0755 "$1/etc/systemd/system/multi-user.target.wants"
         ln -sf "/etc/systemd/system/stunnel-cert-watch.path" "$1/etc/systemd/system/multi-user.target.wants/stunnel-cert-watch.path"

@@ -64,6 +64,7 @@ grep -q '^PIHOLE_REGEX_DENY=' .env.example
 grep -q '^UNBOUND_EXTRA_HARDENING=' .env.example
 grep -q '^DOT_TERMINATOR=' .env.example
 grep -q '^IMAGE_ROOT_PART_SIZE=' .env.example
+grep -q '^KE_FLASH_DISCARD=' .env.example
 grep -q 'dot_terminator: \$DOT_TERMINATOR' config/ke-net-screen.yaml
 grep -q '^# X-Env-Var-dot_terminator' layer/ke-00-layer.yaml
 grep -q 'stunnel@dot' layer/ke-15-piholecfg.yaml
@@ -76,7 +77,10 @@ grep -q 'stunnel4.service' layer/ke-15-piholecfg.yaml   # legacy sysv mask
 grep -q 'sslVersionMin = TLSv1.2' layer/ke-15-piholecfg.yaml
 grep -q 'tmpfiles.d/stunnel-dot.conf' layer/ke-15-piholecfg.yaml
 grep -q 'foreground = quiet' layer/ke-15-piholecfg.yaml
+grep -q 'stunnel-cert-guard.sh' layer/ke-15-piholecfg.yaml   # fingerprint guard on the cert watch
 grep -q 'verify-certs.sh' layer/ke-25-monitor.yaml
+grep -q 'enable-cache-dump.sh' layer/ke-25-monitor.yaml   # operator opt-in cache-dump grant
+grep -q 'net.ipv4.tcp_fastopen = 3' etc/sysctl.d/99-unbound-tuning.conf   # server-mode TFO kernel pairing (answers unbound's configure WARNING)
 grep -q -- '--extra-hardening' scripts/build-unbound.sh
 grep -q 'UNBOUND_EXTRA_HARDENING' ke-net-screen.sh
 

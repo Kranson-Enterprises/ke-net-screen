@@ -41,10 +41,11 @@
 #   appliance refuses). One SSH connection is shared. The journal is readable by members of
 #   adm / systemd-journal; everything else in the package needs no privilege. Only the cache
 #   dump needs root on the appliance: interactively you are asked for your sudo password
-#   once; for unattended (cron) runs grant exactly that command without a password on the
-#   appliance (mode 0440; check with visudo -cf first):
-#     echo 'localadmin ALL=(root) NOPASSWD: /usr/sbin/unbound-control -c /etc/unbound/unbound.conf dump_cache' \
-#       | sudo tee /etc/sudoers.d/ke-collect-dump
+#   once; for unattended (cron) runs an operator may grant exactly that one command:
+#   run `sudo enable-cache-dump.sh` ON THE APPLIANCE (installed by ke-25; validates
+#   with visudo -cf, installs /etc/sudoers.d/ke-collect-dump 0440). The grant is a
+#   deliberate post-deploy opt-in — the dump exposes the household's resolved-name
+#   cache — and a reflash removes it; re-run the script after flashing.
 #   Without it the dump is skipped and everything else is still collected.
 #
 # The image also installs this script on the appliance (~/scripts/collect-appliance-logs.sh,
@@ -239,7 +240,17 @@ mkdir -p "$T/logs"
     for u in pihole-FTL unbound avahi-daemon systemd-resolved systemd-timesyncd ssh cron; do
         printf '%-18s %s\n' "$u" "$(systemctl show "$u" -p ActiveState,SubState,NRestarts,ActiveEnterTimestamp --value 2>/dev/null | paste -sd' ')"
     done
-    sec "versions"; pihole-FTL --version 2>/dev/null | head -3 || true; unbound -V 2>/dev/null | head -1 || true
+    # Versions WITHOUT invoking pihole-FTL: an unprivileged FTL run cannot read
+    # pihole.toml and logs an error-level line into the appliance's own journal on
+    # every collection (self-noise in the exact section meant to catch real problems).
+    # Pi-hole's updatechecker maintains the world-readable /etc/pihole/versions.
+    sec "versions"
+    if [[ -r /etc/pihole/versions ]]; then
+        grep -E '^(CORE|WEB|FTL)_VERSION=' /etc/pihole/versions
+    else
+        echo "pihole versions: /etc/pihole/versions unreadable (skipped; not running FTL unprivileged)"
+    fi
+    unbound -V 2>/dev/null | head -1 || true
     echo "unbound dpkg diversions: $(dpkg-divert --list 2>/dev/null | grep -c unbound)"
     sec "journal + logs"; journalctl --disk-usage 2>/dev/null || true
     ls -la /var/log/*.log* 2>/dev/null; ls -la /var/log/pihole/ 2>/dev/null || true
@@ -250,7 +261,13 @@ mkdir -p "$T/logs"
         [[ -r $h/name && -r $h/temp1_input ]] && echo "$(cat "$h/name") $(( $(cat "$h/temp1_input") / 1000 ))'C"
     done
     sec "apt history (tail)"; tail -n 60 /var/log/apt/history.log 2>/dev/null || echo "(not readable or absent)"
-    sec "this boot: warnings and errors (last 40)"; journalctl -b -p warning -q --no-pager 2>/dev/null | tail -n 40 || true
+    # Collection artifacts are filtered so the tail stays signal: FTL's toml-open
+    # error from historical unprivileged probes, and the sudo audit lines of this
+    # collector's own cache-dump command. Everything else stays verbatim.
+    sec "this boot: warnings and errors (last 40, collector's own noise filtered)"
+    journalctl -b -p warning -q --no-pager 2>/dev/null \
+        | grep -vE 'openFTLtoml\(\)|COMMAND=/usr/sbin/unbound-control -c /etc/unbound/unbound\.conf dump_cache' \
+        | tail -n 40 || true
 } > "$T/host-info.txt" 2>&1
 for f in /var/log/dns-health.log /var/log/dns-health.log.1 /var/log/net-snapshot.log /var/log/net-snapshot.log.1 \
          /var/log/stunnel-dot.log \

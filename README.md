@@ -2,58 +2,13 @@
 
 Raspberry Pi 5 Image Builder for Home DNS
 
-**NOTICE:** These instructions eventually affect your network configuration and connections. You are responsible. You may need to reset or reboot your Internet Service Provider (ISP) modem or contact ISP support to regain proper access if all goes wrong. While fixable, a certain level of patience and required planning are necessary to properly reconfigure your network. This repository was made simple over the course of multiple weekends of network up-and-down exercises.
+**NOTICE:** These instructions reconfigure your home network, and you are responsible for it. If it goes wrong you may need to reset or reboot your Internet Service Provider (ISP) modem — everything here is fixable, but plan for patience: this repository was made simple over the course of multiple weekends of network up-and-down exercises.
 
-Success will be determined through validation and testing. Your user experiences may change. You may need to learn new habits of clicking and browsing to mitigate blocked connections. Search results for example may need further scanning to get to a direct link instead of one parlayed through an advertiser!
+Expect browsing habits to change once filtering is live — some search results need a second look to reach the direct link instead of one parlayed through an advertiser. Prove success through the validation and testing sections rather than assuming it.
 
 If this project saves you time or helps your network setup, you can support ongoing maintenance through the GitHub Sponsors button for this repository.
 
 You must review assigned values in defaults before building or deploying the resulting image. While efforts have been made to provide generic and friendly defaults, these defaults may not work in your network environment.
-
-## Workflow
-
-Use this sequence to reduce outage risk during deployment:
-
-1. Prepare and validate
-   - Confirm ISP modem/router admin access and credentials.
-   - Build and verify locally before changing network settings.
-   - Update project settings in config/ and .env for your target network.
-
-2. Create and boot target image
-   - Build image artifacts and write the SD card.
-   - Boot the new DNS host and verify services are healthy.
-
-3. Cut over router settings
-   - Back up current LAN/DHCP/DNS settings on the router first.
-   - Set router DNS to the new host IP.
-   - Disable router DHCP. In this project design, DHCP is served by the Pi-hole configuration on the new DNS host.
-   - Do not run router DHCP and Pi-hole DHCP at the same time. Dual DHCP servers can issue conflicting leases, gateways, and DNS settings, causing intermittent connectivity and name resolution failures.
-
-4. Reboot and confirm client registration
-   - Reboot router and selected clients in a stable order.
-   - Re-check DNS on clients and verify expected filtering behavior.
-
-5. Roll back quickly if needed
-   - Restore saved router DNS/LAN settings.
-   - Reboot router and clients to re-register leases/resolvers.
-
-```mermaid
-flowchart TD
-    A[Verify Router Access] --> B[Configure Project Values]
-    B --> C[Build and Validate Image]
-    C --> D[Boot New DNS Host]
-    D --> E{Services Healthy?}
-    E -- No --> C
-    E -- Yes --> F[Backup Router LAN and DNS Settings]
-    F --> G[Update Router DNS to New Host]
-    G --> H[Reboot Router and Clients]
-    H --> I{DNS Working End to End?}
-    I -- Yes --> J[Cutover Complete]
-    I -- No --> K[Restore Previous Router Settings]
-    K --> L[Reboot and Re-Validate]
-```
-
-**Be ready to use a wired connection to your ISP modem/router during cutover and rollback.**
 
 ## Description
 
@@ -72,39 +27,109 @@ The MIT license in this repository applies to the original ke-net-screen code an
 
 ## Table of Contents
 
-- [Workflow](#workflow)
 - [Description](#description)
+- [Documentation](#documentation)
 - [Overview](#overview)
+  - [Project Goals](#project-goals)
+  - [What the Image Ships](#what-the-image-ships)
+  - [Architecture](#architecture)
+  - [Network Configuration](#network-configuration)
+  - [Access Points](#access-points)
 - [Hardware Requirements](#hardware-requirements)
 - [Quick Start](#quick-start)
-- [Initial Setup](#initial-setup)
+  - [Preflight and Build-Only Modes](#preflight-and-build-only-modes)
+- [Preparing the Build Host](#preparing-the-build-host)
+- [Configure](#configure)
+  - [Current Router Network Information](#current-router-network-information)
+  - [Config Layer Update](#config-layer-update)
+  - [Unbound Build Options](#unbound-build-options)
+  - [Image Size](#image-size)
+- [Build](#build)
+  - [Image Tuning Highlights](#image-tuning-highlights)
+  - [Build With Password](#build-with-password)
+  - [Build Success](#build-success)
+- [Source-Built Unbound Mode](#source-built-unbound-mode)
+- [First Boot and Verification](#first-boot-and-verification)
+  - [System Checks](#system-checks)
+  - [Network Checks](#network-checks)
+  - [Network Lookup Checks](#network-lookup-checks)
+  - [Post-Boot Acceptance Checks](#post-boot-acceptance-checks)
+- [Router Cutover Workflow](#router-cutover-workflow)
+- [Operating the Appliance](#operating-the-appliance)
+  - [Collecting Logs from a LAN Host](#collecting-logs-from-a-lan-host)
+  - [Adlist Backups](#adlist-backups)
+  - [Env Toggles and Regex Deny (WPAD)](#env-toggles-and-regex-deny-wpad)
+  - [Certificate Verification](#certificate-verification)
+  - [Monthly Maintenance and Scheduled Reboot](#monthly-maintenance-and-scheduled-reboot)
+  - [Network Test Battery](#network-test-battery)
+  - [Bootloader EEPROM](#bootloader-eeprom)
+- [Security Posture](#security-posture)
+- [Releases](#releases)
+- [Development Notes](#development-notes)
+  - [VSCode Remote SSH](#vscode-remote-ssh)
+  - [Working with the Submodules](#working-with-the-submodules)
+  - [V2 RPI-IMAGE-GEN CLI](#v2-rpi-image-gen-cli)
+
+## Documentation
+
+- **README** (this file) — build, deploy, cut over, operate.
+- **[CONFIG-OVERVIEW.md](CONFIG-OVERVIEW.md)** — how the appliance works and why: configuration flow from `.env` to the layers, deliberate platform decisions, the scheduled-maintenance table, log locations.
+- **[RELEASE.md](RELEASE.md)** — the release process; see [Releases](#releases).
 
 ## Overview
 
 ### Project Goals
 
-- Create reproducible Raspberry Pi 5 images with Pi-hole and Unbound
-- Implement DNS hardening and privacy features
+- Create reproducible Raspberry Pi 5 images with Pi-hole and a source-built, DNSSEC-validating recursive Unbound
+- Implement DNS hardening and privacy features, including an opportunistic encrypted-DNS (DNS-over-TLS) tier
 - Configure systemd-resolved networking
 - Enable mDNS via Avahi for local service discovery
-- Provide comprehensive verification procedures
+- Build observability and verification in: monitors, health checks, and acceptance procedures ship in the image
+
+### What the Image Ships
+
+- **Filtering recursive DNS:** Pi-hole FTL answers the LAN on port 53 and forwards to Unbound on loopback port 5335, which resolves from the root servers directly and enforces DNSSEC — no public forwarder in the resolution path.
+- **Encrypted DNS for phones** (`DOT_TERMINATOR=y`): a privilege-dropped stunnel terminator serves DNS-over-TLS on port 853 with FTL's own certificate. Android and Apple devices on default "Automatic" Private DNS upgrade to it opportunistically — no per-phone setup, filtering intact.
+- **Certificate lifecycle handled:** FTL auto-rotates its certificate ~2 days before expiry; a path unit propagates the new certificate to the DoT terminator (fingerprint-guarded so only real changes restart it), and `verify-certs.sh` proves the served-vs-file state across every TLS consumer on demand.
+- **Observability:** hourly `net-snapshot` and `power-report` monitors and a daily DNS health check, each writing one journald record per run with full reports in self-rotating `/var/log` files; a monthly read-only maintenance bundle (full-card read scrub, database checks, journal verify, config backup); a log collector run from any LAN host.
+- **Unattended security upgrades** stay current daily; kernel/EEPROM activation is bounded by an optional operator-scheduled proving reboot (`schedule-reboot.sh`), and bootloader EEPROM updates are staged manually, never silently.
+- **SBOM per build**, corrected after source-built Unbound so the recorded package data matches what actually ships.
+- **Experiments are opt-in:** features arrive as `.env` toggles that default to current behavior (`DOT_TERMINATOR`, `UNBOUND_EXTRA_HARDENING`, `PIHOLE_REGEX_DENY`, `KE_FLASH_DISCARD`, ...).
+
+### Architecture
+
+```mermaid
+flowchart LR
+    C[LAN clients - port 53] --> F
+    P[Phones - Private DNS] -- DoT 853 --> S[stunnel terminator]
+    S -- loopback 53 --> F[Pi-hole FTL<br/>filtering, DHCP, NTP, admin 443]
+    F -- loopback 5335 --> U[Unbound<br/>recursive + DNSSEC]
+    U --> R[(Root / TLD / authoritative<br/>DNS servers)]
+    A[Avahi mDNS - .local] -.- C
+    F --> M[Monitors + health checks<br/>journald + /var/log]
+    M -. collector pulls via SSH .-> H[LAN host]
+```
+
+Unbound accepts queries only from loopback, so the LAN's one DNS door is FTL (plus the TLS-wrapped 853 path, which also lands on FTL). The admin UI is served over HTTPS on the appliance's LAN address.
 
 ### Network Configuration
 
-- Primary DNS: 127.0.0.1 (Pi-hole on port 53)
-- Upstream DNS: Unbound on port 5335 resolving to public DNS
-- Network Management: systemd-resolved
-- Service Discovery: Avahi mDNS
+What the appliance provides to the LAN once deployed:
+
+- DNS on port 53 for every client (filtering, then full recursion — see the diagram above)
+- DNS-over-TLS on port 853 for clients that probe for it (optional tier)
+- DHCP and NTP served by Pi-hole after cutover
+- Admin UI over HTTPS on port 443 at the appliance's static IP
+- `.local` service discovery via Avahi mDNS
+- On the appliance itself, lookups go through systemd-resolved to FTL; Unbound's port 5335 and control port are loopback-only and never reachable from the LAN
 
 ### Access Points
 
-- Router: <http://your-router-internal-ip/router.html>
-- Development Host: <http://your-on-network-client-machine/>
-- Target Server Lookup: <http://your-router-internal-ip/admin/settings/dhcp>
-- Target Server: <http://your-router-dhcp-reporting-assigned-ip-of-new-host/admin/>
-- SSH: `C:\Windows\System32\OpenSSH\ssh.exe localadmin@your.internal.ip.address`
+- Router admin: `http://<your-router-ip>/` — needed for recon and cutover
+- Appliance admin UI: `https://<appliance-ip>/admin/` (self-signed certificate; the appliance gets a static IP you choose in `.env`)
+- SSH: `ssh localadmin@<appliance-ip>` (any OS; on Windows, OpenSSH is built in)
 
-The access points will be used during the build and deployment. At this point you need to know your current internal router IP and admin login credentials. The development host is likely your desktop computer. The target server lookup is when you find the new IP address for your newly plugged in Raspberry PI. Target server is the Raspberry PI machine where you will host and build this repository. This setup will assign the final Raspberry PI image a static IP address so it can be used as primary DNS server for your router and home network.
+Finding the appliance's address the first time: **before cutover**, the freshly booted build host appears in your **router's** DHCP client table. **After cutover**, DHCP is served by Pi-hole, so leases live in the appliance admin UI instead — the router's table goes stale. The deployed appliance itself always sits at the static IP you configured, so you rarely need either table for it.
 
 ## Hardware Requirements
 
@@ -153,7 +178,258 @@ Build-only output is written under the generated build directory (for example: `
 If you run the default mode and provide a missing/nonexistent device path, the script automatically falls back to build-only and skips flashing.
 The `PIHOLE_PASSWORD` value is embedded into a one-time secret file on the boot partition during image build, applied on first boot, and then deleted by the first-boot setup script.
 
-### Source-Built Unbound Mode
+## Preparing the Build Host
+
+This repository is built on the target hardware class itself — a Raspberry Pi 5 running from a USB stick builds the SD-card image. The resulting image is not GUI or Desktop enabled; it is purely a DNS server.
+
+### 1. Boot Initialization
+
+1. Assemble Raspberry Pi hardware
+2. Connect keyboard, mouse, and monitor
+3. **Do NOT** insert microSD card
+4. **Do** insert USB 3.0 64GB stick
+5. Connect Ethernet cable
+6. Hold Shift key and power on
+
+This triggers NetBoot to install base OS via internet to USB stick.
+
+We use `localadmin` as the default user with a password of our choosing. The `root` user will also exist and should be given a different password. Be sure to write down the passwords!
+
+### 2. Initial System Upgrade
+
+```bash
+sudo apt update && sudo apt upgrade
+```
+
+#### Optional RPI-UPDATE
+
+`rpi-update` provides newer kernels than stable APT repository. Mixing kernels during an image build process assumes risk to any incompatibilities between kernels. If this is your first time, you can skip this step.
+
+```bash
+sudo rpi-update
+sudo reboot
+sudo apt update && sudo apt upgrade
+```
+
+### 3. Clone the Repository and Submodules
+
+On the build host clone this repository and make the submodule code available:
+
+```bash
+mkdir -p ~/source/github && cd ~/source/github
+git clone https://github.com/kranson-enterprises/ke-net-screen.git
+cd ke-net-screen
+git submodule init
+git submodule update
+cd rpi-image-gen
+sudo ./install_deps.sh
+```
+
+The `.gitmodules` file contains reference to the actual builder executables required. This repository provides a layering template example to enable a small lab or home network DNS server. See [Working with the Submodules](#working-with-the-submodules) for forking options and update commands.
+
+## Configure
+
+Before you build and test you will need to do a bit of detective work to identify your current network configuration.
+
+### Current Router Network Information
+
+This is your connection to the internet. It is your 'gateway' modem. If you cannot get to or access this information you need to go to your ISP support or stop here. You may continue to review and build the image anyhow but you will not be able to reconfigure DNS for your entire home default DNS network without this access.
+
+Below is simply an example. Your network may be 192.168.1, 10.x, or 172.x. These are all considered "private" networks. If you see other numbers, aka 68.x, 69.x, then you are looking at the WAN configuration and not the LAN configuration.
+
+1. Navigate to Modem/Router Host
+   `http://192.168.0.1/admin`
+
+2. Login
+   - username: admin
+   - password: default is printed on label, otherwise recorded elsewhere
+
+3. Navigate to LAN Setup > LAN Settings
+   - DHCP Server Settings
+      - Checked on/Enabled
+      - Start IP: 192.168.0.2
+      - End IP  : 192.168.0.254
+      - Domain Name: empty
+      - This will be turned OFF once the appliance is in place
+   - DNS Override
+      - Enable DNS Override
+         - Uncheck/clear. No custom DNS configuration
+      - Current Assigned examples:
+         - DNS: 8.8.8.8 9.9.9.9
+
+You need to know your ISP default DNS. You are free to choose other DNS if your ISP allows it. The intent here is to improve local DNS security and simultaneously take advantage of our ISP's DNS and DNS defenses.
+
+### Config Layer Update
+
+Now that you have found which public DNS servers you will use, set the values
+in `.env` (create it from `.env.example` if you have not already). The main
+configuration file `./config/ke-net-screen.yaml` does not hold literal
+values — it references environment variables that the build script loads from
+`.env`:
+
+```yaml
+# ./config/ke-net-screen.yaml excerpt (env-driven; edit .env, not this file)
+network:
+  interface: $NETWORK_INTERFACE
+  use_dhcp: $NETWORK_USE_DHCP
+  ipaddress: $NETWORK_IPADDRESS
+  ipnetmask: $NETWORK_IPNETMASK
+  netmask: $NETWORK_NETMASK
+  gateway: $NETWORK_GATEWAY
+  dns0: $NETWORK_DNS0
+  dns1: $NETWORK_DNS1
+  dns2: $NETWORK_DNS2
+  domain: $NETWORK_DOMAIN
+```
+
+```bash
+# .env excerpt (example values)
+NETWORK_INTERFACE=eth0
+NETWORK_USE_DHCP=n
+NETWORK_IPADDRESS=192.168.0.53   # static IP for your new DNS server
+NETWORK_IPNETMASK=24
+NETWORK_NETMASK=255.255.255.0
+NETWORK_GATEWAY=192.168.0.1      # your router
+NETWORK_DNS0=127.0.0.1           # purposely localhost for first-order lookup
+NETWORK_DNS1=8.8.8.8             # second-order lookup
+NETWORK_DNS2=9.9.9.9             # third-order lookup
+NETWORK_DOMAIN=lan               # your local domain.
+                                 # Do not use 'local'!! It is reserved for
+                                 # Avahi-Daemon. It will be in /etc/networks
+                                 # for kernel lookups.
+```
+
+### Unbound Build Options
+
+`UNBOUND_ENABLE_TFO_SERVER` (in `.env`, default `n`) compiles TCP Fast Open
+server support into the source-built Unbound (`--enable-tfo-server`). Set it to
+`y` only together with the `net.ipv4.tcp_fastopen` sysctl shipped in
+`etc/sysctl.d/99-unbound-tuning.conf`; the wrapper exports it to
+`scripts/build-unbound.sh`, and a change of value triggers a reconfigure of the
+cached build.
+
+### Image Size
+
+The default image sizes work for most installations. Percentage sizes are relative to the built content (not the SD card), so the image will not fill the entire SD disk. If you want to fill the entire SD disk you must also have enough space on the host USB key to create the image (as well as significantly more time). Once you feel comfortable and have tested your configuration you might go back and recreate the final image with larger sizes. Like the network settings, sizes are set in `.env`:
+
+```yaml
+# ./config/ke-net-screen.yaml excerpt (env-driven; edit .env, not this file)
+image:
+  layer: image-rpios
+  boot_part_size: $IMAGE_BOOT_PART_SIZE
+  root_part_size: $IMAGE_ROOT_PART_SIZE
+  name: deb13-arm64-splash
+```
+
+```bash
+# .env excerpt (example values)
+IMAGE_BOOT_PART_SIZE=200%
+IMAGE_ROOT_PART_SIZE=500%
+# Static sizes fill a specific device, only needed on final prod deploy build
+#IMAGE_BOOT_PART_SIZE=512M
+#IMAGE_ROOT_PART_SIZE=115G
+```
+
+Note: partitions are not expanded at first boot — the root filesystem keeps its build-time size until resized manually.
+
+## Build
+
+```mermaid
+flowchart LR
+    E[.env<br/>your values] --> Y[config/ke-net-screen.yaml]
+    Y --> G[rpi-image-gen<br/>submodule]
+    L[layer/ke-00 .. ke-25] --> G
+    V[vendors/unbound<br/>source build] -- staged artifacts<br/>+ dpkg diversions --> G
+    G --> I[deb13-arm64-splash.img<br/>+ SBOM + manifest]
+    I -- SD write --> SD[(SD card)]
+    K[pre-release-check +<br/>check-unbound-build] -. verify .-> I
+```
+
+The build uses the submodule rpi-image-gen executable. It utilizes configuration from the ke-net-screen config and layer folders.
+
+The ./config/ke-net-screen.yaml provides the configuration values.
+
+The ./layer folder utilize META dependencies and variable expansion to feed the rpi-image-gen executable.
+
+```bash
+./config/ke-net-screen   # Assigned values
+./layer/ke-00-layer      # X-Env-Layer-Requires creates ordered dependencies
+./layer/ke-03-knlcfg     # Set US locale, assigns kernel, cmdline, config.txt settings
+./layer/ke-05-netcfg     # Variable expansion to configure network
+./layer/ke-08-unbsrccfg  # Optional source-built unbound artifact install layer (from build staging)
+./layer/ke-10-unbcfg     # Variable expansion to configure unbound, requires knlcfg settings
+./layer/ke-15-piholecfg  # Stages and configures first boot install and configure pi-hole with unbound
+./layer/ke-20-avhicfg    # Install and secure hardening of mDNS/AppleTalk/Avahi-daemon
+./layer/ke-25-monitor    # Monitoring: dns-health-check, net-snapshot, power-report timers + log collector; requires avhicfg
+```
+
+Run the build:
+
+- Execute `./ke-net-screen.sh`.
+- The full run takes about 15–20 minutes depending on network and device speed. Timings are hardware-dependent and can be considerably lower — a warm rebuild with `--apt-cache` on fast storage completes in a few minutes.
+- At the first prompt during the build, insert the target SD card into the Pi.
+- The script downloads and builds the image, wipes the SD card partitions, and writes the new image to the SD card.
+
+### Image Tuning Highlights
+
+The layers and boot files bake in a few appliance-focused defaults:
+
+- CPU frequency scaling uses `schedutil` (`cpufreq.default_governor=` in the kernel
+  command-line drop-in `layer/ke-03-knlcfg.d/for/linux-base/cmdline.d/60-ke-appliance`;
+  rpi-image-gen assembles `/boot/firmware/cmdline.txt` from such fragments) for fast ramp
+  on sporadic DNS bursts at ondemand-class idle power.
+- Wi-Fi and Bluetooth are disabled at the firmware level
+  (`dtoverlay=disable-wifi`, `dtoverlay=disable-bt`) and the `iwd` wireless
+  daemon is removed from the image — this is a wired-only appliance.
+- Dirty writeback is bounded in bytes (`etc/sysctl.d/20-iodiskperf.conf`,
+  64 MiB hard / 16 MiB background) so write bursts cannot queue minutes of
+  SD-card flushing.
+- Kernel socket buffer limits (`etc/sysctl.d/99-unbound-tuning.conf`) match
+  Unbound's `so-rcvbuf`/`so-sndbuf` settings.
+- `KE_FLASH_DISCARD=1` (in `.env`, default `0`) adds a stepped full-device
+  discard before flashing to reset the card's wear-leveling state; the default
+  keeps the fast 34-sector wipe only.
+
+### Build With Password
+
+The `PIHOLE_PASSWORD` environment variable is required for the build. It can be set in two ways, with the following precedence (first match wins):
+
+1. **From `.env` file** (if present, takes highest precedence):
+   - The script automatically sources `.env` at startup if it exists.
+   - Set `PIHOLE_PASSWORD=YourPassword` in `.env`
+   - This method keeps sensitive values out of shell history.
+
+2. **From command line** (if `.env` is not present or does not define `PIHOLE_PASSWORD`):
+   - To avoid saving the password to shell history, prefix the command with a space:
+   - `PIHOLE_PASSWORD=Chang3M@! ./ke-net-screen.sh`
+   - The .bashrc `HISTIGNORE=ignoreboth` default rule excludes commands starting with a space from history.
+
+**Password Requirements:**
+
+- Must meet complexity rules: one lowercase, one uppercase, one number, one special character, minimum 8 characters
+- If requirements are not met, the build will error
+- This validation is built into rpi-image-gen layers
+- `Chang3M@!` is an example only
+- This password will be the host login password after first boot
+
+**Recommendation:** For security, use the `.env` file approach rather than command line, and ensure `.env` is never committed to version control.
+
+### Build Success
+
+Once completed you will see:
+
+```bash
+Write successful.                         ..
+SD card setup complete.
+```
+
+Then power down and swap media:
+
+- When writing completes, run `sudo shutdown now` on the USB-hosted system.
+- Remove the USB stick, connect the Ethernet (`eth0`) cable to the Pi, and insert the SD card.
+- Power the Pi on and allow it to boot from the SD card. The SD card takes first priority — if you forget to take out the USB it will start from the SD anyway!
+
+## Source-Built Unbound Mode
 
 By default, the image uses package-managed Unbound behavior.
 
@@ -201,7 +477,7 @@ rm -rf .unbound-build            # or: ./scripts/build-unbound.sh ./ke-net-scree
 ./ke-net-screen.sh --source-unbound --apt-cache --build-only
 ```
 
-#### APT package cache (faster repeat builds)
+### APT package cache (faster repeat builds)
 
 Pass `--apt-cache` to enable a host-side APT package cache. The cache lives in
 `apt-cache/` in the project directory (excluded from git, like the source-Unbound
@@ -225,7 +501,7 @@ the script prompts before building:
 > Requires an rpi-image-gen that supports `IGconf_sys_apt_cachedir` (the
 > `sys: implement apt package cache` change in the `rpi-image-gen` submodule).
 
-#### Upgrade Protection and SBOM Accuracy
+### Upgrade Protection and SBOM Accuracy
 
 Source mode registers local dpkg diversions for every Unbound binary it
 installs (`/usr/sbin/unbound`, `unbound-anchor`, `unbound-checkconf`,
@@ -243,7 +519,7 @@ source version, a `git+` VCS reference to the exact built commit, corrected
 CPE/purl identifiers, and `deployed.json` is refreshed so the recorded
 size/sha1 of the SBOM still match.
 
-#### Success Criteria
+### Success Criteria
 
 When source mode is enabled, all of the following should be true:
 
@@ -265,7 +541,7 @@ Expected checker summary:
 
 - `RESULT: ... 0 failed ...`
 
-#### Fallback Behavior Meaning
+### Fallback Behavior Meaning
 
 Layer `ke-unbsrccfg` installs source-built artifacts only when they exist under build staging.
 If artifacts are absent, it logs an informational fallback and leaves package-managed Unbound in place.
@@ -276,7 +552,7 @@ Fallback message:
 
 This fallback is intentional for safe default behavior and non-source builds.
 
-#### Troubleshooting
+### Source Mode Troubleshooting
 
 1. Source build did not run.
    - Confirm you passed `--source-unbound`.
@@ -298,380 +574,7 @@ This fallback is intentional for safe default behavior and non-source builds.
      - `./scripts/check-unbound-build.sh ./ke-net-screen-build`
    - Inspect `ke-unbsrccfg` hook output in build logs for copy-stage messages.
 
-### Post-Boot Acceptance Checks
-
-After first boot, validate service readiness:
-
-```bash
-sudo systemctl status pihole-FTL unbound avahi-daemon systemd-resolved
-sudo systemctl status dns-health-check.timer
-sudo journalctl -u dns-health-check.service -n 100 --no-pager
-dig @127.0.0.1 github.com
-# Hourly monitors (first run 5 min after boot): journald holds one record per run,
-# the full reports are in /var/log/net-snapshot.log and /var/log/power-report.log
-systemctl list-timers 'net-snapshot*' 'power-report*' 'ke-maintenance*'
-# schedule (or remove) a periodic proving reboot: sudo schedule-reboot.sh
-# why mitigations=off / no swap / single NTP owner: CONFIG-OVERVIEW.md "Deliberate Platform Decisions"
-journalctl -u net-snapshot.service -u power-report.service -o cat --no-pager | tail -n 4
-```
-
-### Collecting Logs from a LAN Host
-
-`home/scripts/network/collect-appliance-logs.sh <appliance-ip>` pulls the journal, the
-Unbound cache dump and a `tar.gz` of the monitor logs with a host-facts snapshot into
-`private/inbox/` and prints a short review. Add `--since-last` for an incremental journal;
-see `--help` for the sudoers line that lets the cache dump run unattended. The image also
-ships the script at `~/scripts/collect-appliance-logs.sh` (the `ke-monitor` layer); run there
-against the appliance's own name or address it collects locally without SSH and writes to
-`~/appliance-logs/`. Run it as your normal user, never under `sudo`: interactive runs prompt
-for your sudo password only for the cache dump.
-
-### Adlist Backups
-
-`sudo ~/scripts/export-adlist.sh` saves the adlists to `~/pihole-adlist-backups/` as a
-timestamped CSV and diffs it against the previous one; `import-adlist.sh FILE --apply`
-re-adds missing lists from such a file. `--domains` exports the realized block list (every
-domain the adlists resolved to) for comparison between updates. The first-boot import from the
-image's CSV is unchanged.
-
-### Regex Deny Entries (WPAD)
-
-Set `PIHOLE_REGEX_DENY` in `.env` (for example `^wpad\.`) to import Pi-hole regex deny entries
-on first boot; it is empty by default. On the appliance, `~/scripts/wpad-block.sh --on` or `--off`
-
-Two more `.env` toggles follow the same pattern (default off; development/production enable
-them): `UNBOUND_EXTRA_HARDENING=y` compiles the source-built Unbound with fortify level 3 and
-stack-clash protection (toolchain-probed; the build stops rather than silently shipping
-without them), and `DOT_TERMINATOR=y` serves DNS-over-TLS on port 853 via stunnel with FTL's
-own certificate, which default-mode Android/Apple Private DNS picks up opportunistically.
-toggles the WPAD entry at run time with a domain-list backup in `~/pihole-backups/` and a
-`--restore` path. See CONFIG-OVERVIEW for how the `ke.` variables flow from `.env` to the layers.
-
-### Bootloader EEPROM
-
-The boot-time `rpi-eeprom-update -s -a` applies critical minimums only, so the bootloader can
-lag the images shipped in the `rpi-eeprom` package by months while reporting "up to date".
-`~/scripts/eeprom-update.sh` shows installed vs latest for the configured channel; `sudo
-eeprom-update.sh --apply` stages the latest and offers a reboot, which flashes it. The daily
-health check prints the gap as an ℹ line.
-
-## Initial Setup
-
-### 1. Boot Initialization
-
-1. Assemble Raspberry Pi hardware
-2. Connect keyboard, mouse, and monitor
-3. **Do NOT** insert microSD card
-4. **Do** insert USB 3.0 64GB stick
-5. Connect Ethernet cable
-6. Hold Shift key and power on
-
-This triggers NetBoot to install base OS via internet to USB stick.
-
-We use `localadmin` as the default user with a password of our choosing. The `root` user will also exist and should be given a different password. Be sure to write down the passwords!
-
-### 2. Initial System Upgrade
-
-```bash
-sudo apt update && sudo apt upgrade
-```
-
-#### Optional RPI-UPDATE
-
-`rpi-update` provides newer kernels than stable APT repository. Mixing kernels during an image build process assumes risk to any incompatibilities between kernels. If this is your first time, you can skip this step.
-
-```bash
-sudo rpi-update
-sudo reboot
-sudo apt update && sudo apt upgrade
-```
-
-### 3. Development Environment Setup
-
-Here we describe how the project was built and configured so that you may have greater success to build your own deployed server image.
-
-#### VSCode Remote SSH
-
-This repository is intended to be hosted on the target hardware for the resulting image - a RaspberryPi5 single-board-computer. Experience has shown that running WSL, Windows Subsystem Linux, does not allow running various root file system creation tools. Security measures are likely due to nested-hosting and virtualization risk vectors. You may read and trial these step on any machine but they are only proven to work on a RaspberryPI5 host accessed via SSH thru VSCode.
-
-1. Go to VSCode extensions
-2. Install **Remote Development Extension**
-   1. ms-vscode-remote.vscode-remote-extensionpack
-3. Go to the Raspberry PI machine
-   1. Execute `sudo raspi-config`
-   2. Select Interface Options > SSH
-   3. Enable SSH Server
-4. Go to VSCode
-   1. CTL-SHIFT-P for Extension action
-   2. Remote-SSH: Connect Current Window to Host
-   3. Configure new host, use `username@ip.address` (<localadmin@192.xx.xx.xx>)
-   4. Connect and authenticate using username password
-5. Clone and manage repository on remote host
-
-Verify connectivity to the remote SSH host. You may also execute these steps directly on the host in the Debian desktop on the RaspberryPI. Be aware that the final RaspberryPi image created by this repository is not GUI or Desktop enabled. It is purely a DNS server.
-
-#### Local Development
-
-On the remote SSH host clone this repository. Update or reconfigure the submodules to align to your repository needs.
-
-```bash
-mkdir -p ~/source/github && cd ~/source/github
-git clone https://github.com/kranson-enterprises/ke-net-screen.git
-cd ke-net-screen
-```
-
-The `.gitmodules` file contains reference to the actual builder executables required. This repository provides a layering template example to enable a small lab or home network DNS server. Change the URL to match your fork repository or keep main rpi-image-gen repository.
-
-```bash
-# .gitmodules
-[submodule "rpi-image-gen"]
- path = rpi-image-gen
- url = https://github.com/raspberrypi/rpi-image-gen
-[submodule "vendors/pi-hole"]
- path = vendors/pi-hole
- url = https://github.com/pi-hole/pi-hole.git
-[submodule "vendors/unbound"]
- path = vendors/unbound
- url = https://github.com/NLnetLabs/unbound.git
-```
-
-Make the submodule code available to the current repository:
-
-```bash
-git submodule init
-git submodule update
-cd rpi-image-gen
-sudo ./install_deps.sh
-```
-
-##### Option A: RPI-IMAGE-GEN Submodule
-
-The rpi-image-gen repository is its own source of truth. Any modifications or changes to the repository are bound by the maintainer(s). To respect and honor this to allow variations that can be easily contributed back to the maintainers, a targeted or forked repository configuration can be used private use.
-
-1. Using Github credentials, fork the rpi-image-gen repository
-   1. This allows for localized changes with ability to inherit upstream changes; don't forget to update your fork!
-2. In your local repository add the forked repository as a submodule
-   1. The local repository is created as private.
-   2. The forked repository is public.
-   3. The submodule treats the rpi-image-gen tool and software as an external dependency.
-
-```bash
-# Delete the current submodule setup and configuration
-# rm -Rf .gitsubmodules rpi-image-gen
-
-# Add a submodule
-# git submodule add <remote_url> <destination_folder>
-
-# Add the "rpi-image-gen" forked repository as a submodule in the project root folder
-git submodule add https://github.com/your-github-id/rpi-image-gen.git rpi-image-gen
-```
-
-#### Initializing and Updating Submodules
-
-When you clone a repository that contains submodules, the submodule directories will be present but empty. To initialize and update the submodules, run the following commands:
-
-##### Initialize the submodule configuration
-
-git submodule init
-
-##### Update the submodules to fetch the data and check out the appropriate commit
-
-git submodule update
-
-Alternatively, you can use the --recurse-submodules option with the git clone command to automatically initialize and update the submodules during the cloning process:
-
-##### Clone the repository and initialize and update submodules
-
-git clone --recurse-submodules <repository_url>
-
-##### Updating Submodules
-
-To update an existing submodule to the latest commit from the remote repository, use the git submodule update command with the --remote and --merge options:
-
-##### Update the submodule to the latest commit and merge changes
-
-git submodule update --remote --merge
-
-### 4. Configure
-
-Before you build and test you will need to do a bit of detective work to identify your current network configuration.
-
-#### Current Router Network Information
-
-This is your connection to the internet. It is your 'gateway' modem. If you cannot get to or access this information you need to go to your ISP support or stop here. You may continue to review and build the image anyhow but you will not be able to reconfigure DNS for your entire home default DNS network without this access.
-
-Below is simply an example. Your network may be 192.168.1, 10.x, or 172.x. These are all considered "private" networks. If you see other numbers, aka 68.x, 69.x, then you are looking at the WAN configuration and not the LAN configuration.
-
-1. Navigate to Modem/Router Host
-   `http://192.168.0.1/admin`
-
-2. Login
-   - username: admin
-   - password: default is printed on label, otherwise recorded elsewhere
-
-3. Navigate to LAN Setup > LAN Settings
-   - DHCP Server Settings
-      - Checked on/Enabled
-      - Start IP: 192.168.0.2
-      - End IP  : 192.168.0.254
-      - Domain Name: empty
-      - This will be turned OFF once the DNS Host is in place
-   - DNS Override
-      - Enable DNS Override
-         - Uncheck/clear. No custom DNS configuration
-      - Current Assigned examples:
-         - DNS: 8.8.8.8 9.9.9.9
-
-You need to know your ISP default DNS. You are free to choose other DNS if your ISP allows it. The intent here is to improve local DNS security and simultaneously take advantage of our ISP's DNS and DNS defenses.
-
-#### Config Layer Update
-
-Now that you have found which public DNS servers you will use, set the values
-in `.env` (create it from `.env.example` if you have not already). The main
-configuration file `./config/ke-net-screen.yaml` does not hold literal
-values — it references environment variables that the build script loads from
-`.env`:
-
-```yaml
-# ./config/ke-net-screen.yaml excerpt (env-driven; edit .env, not this file)
-network:
-  interface: $NETWORK_INTERFACE
-  use_dhcp: $NETWORK_USE_DHCP
-  ipaddress: $NETWORK_IPADDRESS
-  ipnetmask: $NETWORK_IPNETMASK
-  netmask: $NETWORK_NETMASK
-  gateway: $NETWORK_GATEWAY
-  dns0: $NETWORK_DNS0
-  dns1: $NETWORK_DNS1
-  dns2: $NETWORK_DNS2
-  domain: $NETWORK_DOMAIN
-```
-
-```bash
-# .env excerpt (example values)
-NETWORK_INTERFACE=eth0
-NETWORK_USE_DHCP=n
-NETWORK_IPADDRESS=192.168.0.53   # static IP for your new DNS server
-NETWORK_IPNETMASK=24
-NETWORK_NETMASK=255.255.255.0
-NETWORK_GATEWAY=192.168.0.1      # your router
-NETWORK_DNS0=127.0.0.1           # purposely localhost for first-order lookup
-NETWORK_DNS1=8.8.8.8             # second-order lookup
-NETWORK_DNS2=9.9.9.9             # third-order lookup
-NETWORK_DOMAIN=lan               # your local domain.
-                                 # Do not use 'local'!! It is reserved for
-                                 # Avahi-Daemon. It will be in /etc/networks
-                                 # for kernel lookups.
-```
-
-#### Unbound Build Options
-
-`UNBOUND_ENABLE_TFO_SERVER` (in `.env`, default `n`) compiles TCP Fast Open
-server support into the source-built Unbound (`--enable-tfo-server`). Set it to
-`y` only together with the `net.ipv4.tcp_fastopen` sysctl shipped in
-`etc/sysctl.d/99-unbound-tuning.conf`; the wrapper exports it to
-`scripts/build-unbound.sh`, and a change of value triggers a reconfigure of the
-cached build.
-
-#### Image Size
-
-The default image sizes work for most installations. Percentage sizes are relative to the built content (not the SD card), so the image will not fill the entire SD disk. If you want to fill the entire SD disk you must also have enough space on the host USB key to create the image (as well as significantly more time). Once you feel comfortable and have tested your configuration you might go back and recreate the final image with larger sizes. Like the network settings, sizes are set in `.env`:
-
-```yaml
-# ./config/ke-net-screen.yaml excerpt (env-driven; edit .env, not this file)
-image:
-  layer: image-rpios
-  boot_part_size: $IMAGE_BOOT_PART_SIZE
-  root_part_size: $IMAGE_ROOT_PART_SIZE
-  name: deb13-arm64-splash
-```
-
-```bash
-# .env excerpt (example values)
-IMAGE_BOOT_PART_SIZE=200%
-IMAGE_ROOT_PART_SIZE=500%
-# Static sizes fill a specific device, only needed on final prod deploy build
-#IMAGE_BOOT_PART_SIZE=512M
-#IMAGE_ROOT_PART_SIZE=115G
-```
-
-Note: partitions are not expanded at first boot — the root filesystem keeps its build-time size until resized manually.
-
-### 5. Build
-
-The build uses the submodule rpi-image-gen executable. It utilizes configuration from the ke-net-screen config and layer folders.
-
-The ./config/ke-net-screen.yaml provides the configuration values.
-
-The ./layer folder utilize META dependencies and variable expansion to feed the rpi-image-gen executable.
-
-```bash
-./config/ke-net-screen   # Assigned values
-./layer/ke-00-layer      # X-Env-Layer-Requires creates ordered dependencies
-./layer/ke-03-knlcfg     # Set US locale, assigns kernel, cmdline, config.txt settings
-./layer/ke-05-netcfg     # Variable expansion to configure network
-./layer/ke-08-unbsrccfg  # Optional source-built unbound artifact install layer (from build staging)
-./layer/ke-10-unbcfg     # Variable expansion to configure unbound, requires knlcfg settings
-./layer/ke-15-piholecfg  # Stages and configures first boot install and configure pi-hole with unbound
-./layer/ke-20-avhicfg    # Install and secure hardening of mDNS/AppleTalk/Avahi-daemon
-./layer/ke-25-monitor    # Monitoring: dns-health-check, net-snapshot, power-report timers + log collector; requires avhicfg
-```
-
-#### Image Tuning Highlights
-
-The layers and boot files bake in a few appliance-focused defaults:
-
-- CPU frequency scaling uses `schedutil` (`cpufreq.default_governor=` in the kernel
-  command-line drop-in `layer/ke-03-knlcfg.d/for/linux-base/cmdline.d/60-ke-appliance`;
-  rpi-image-gen assembles `/boot/firmware/cmdline.txt` from such fragments) for fast ramp
-  on sporadic DNS bursts at ondemand-class idle power.
-- Wi-Fi and Bluetooth are disabled at the firmware level
-  (`dtoverlay=disable-wifi`, `dtoverlay=disable-bt`) and the `iwd` wireless
-  daemon is removed from the image — this is a wired-only appliance.
-- Dirty writeback is bounded in bytes (`etc/sysctl.d/20-iodiskperf.conf`,
-  64 MiB hard / 16 MiB background) so write bursts cannot queue minutes of
-  SD-card flushing.
-- Kernel socket buffer limits (`etc/sysctl.d/99-unbound-tuning.conf`) match
-  Unbound's `so-rcvbuf`/`so-sndbuf` settings.
-
-#### Build With Password
-
-The `PIHOLE_PASSWORD` environment variable is required for the build. It can be set in two ways, with the following precedence (first match wins):
-
-1. **From `.env` file** (if present, takes highest precedence):
-   - The script automatically sources `.env` at startup if it exists.
-   - Set `PIHOLE_PASSWORD=YourPassword` in `.env`
-   - This method keeps sensitive values out of shell history.
-
-2. **From command line** (if `.env` is not present or does not define `PIHOLE_PASSWORD`):
-   - To avoid saving the password to shell history, prefix the command with a space:
-   - `PIHOLE_PASSWORD=Chang3M@! ./ke-net-screen.sh`
-   - The .bashrc `HISTIGNORE=ignoreboth` default rule excludes commands starting with a space from history.
-
-**Password Requirements:**
-
-- Must meet complexity rules: one lowercase, one uppercase, one number, one special character, minimum 8 characters
-- If requirements are not met, the build will error
-- This validation is built into rpi-image-gen layers
-- `Chang3M@!` is an example only
-- This password will be the host login password after first boot
-
-**Recommendation:** For security, use the `.env` file approach rather than command line, and ensure `.env` is never committed to version control.
-
-#### Build Success
-
-Once completed you will see:
-
-```bash
-Write successful.                         ..
-SD card setup complete.
-```
-
-### 6. Test
-
-Now, shutdown the RaspberryPi host, remove the USB, and press the button to boot it again.
-
-The SD card takes first priority. If you forget to take out the USB it will start from the SD anyway!
+## First Boot and Verification
 
 The first-boot will take 2-5 minutes to actually complete. You will be able to log into it almost immediately. The DNS services will not be fully available until the Pi-Hole installation completes.
 
@@ -681,13 +584,13 @@ You can have more than one DNS server on your network. It typically will not bre
 - sudo pihole -up
 - sudo pihole -g
 
-#### System Checks
+### System Checks
 
 - journalctl -b | more
 - systemctl status
 - resolvectl status
 
-#### Network Checks
+### Network Checks
 
 **Quick command-line validation:**
 
@@ -697,6 +600,7 @@ ss -tunlp                       # Confirm listening ports (53 for DNS, SSH on 22
 cat /etc/nsswitch.conf          # Verify the hosts lookup order (explained below)
 resolvectl status               # Confirm resolved forwards to Pi-hole (DNS: 127.0.0.1)
 resolvectl query example.com    # Test end-to-end resolution through the stack
+grep -v '#' /run/systemd/resolve/stub-resolv.conf   # What resolv.conf points at
 ```
 
 **Configuration Architecture (Modern systemd-based design):**
@@ -732,7 +636,7 @@ This image deliberately does NOT include legacy networking components:
 
 In normal operation systemd-resolved answers everything (forwarding to Pi-hole per `resolved.conf.d/unbound.conf`), so the entries after `resolve` form a resilience chain for when resolved is down rather than the everyday path. `.local` service discovery is primarily provided by the Avahi daemon and its tools (`avahi-browse`, `avahi-resolve`), with `mdns4_minimal` supplying glibc-level `.local` lookups in that fallback path.
 
-#### Network Lookup Checks
+### Network Lookup Checks
 
 Note: on the appliance itself, always give `dig` an explicit `@server`. Plain `dig example.com` reads `/etc/resolv.conf`, which points at the disabled 127.0.0.53 stub address; glibc applications are unaffected because they resolve through nss-resolve instead.
 
@@ -743,48 +647,278 @@ Note: on the appliance itself, always give `dig` an explicit `@server`. Plain `d
 - dig -4 example.com @127.0.0.1
 - dig -6 example.com @127.0.0.1
 
-### Workflow Steps and Description
+### Post-Boot Acceptance Checks
 
-Follow these steps to build the image on the USB host, write it to the SD card, and verify the target Raspberry Pi boots with your configured services:
+After first boot, validate service readiness:
 
-1. Prepare the host and source:
-   - Boot the Raspberry Pi from the USB3 stick and open a terminal.
-   - Change into the `ke-net-screen` directory: `cd ke-net-screen`.
+```bash
+sudo systemctl status pihole-FTL unbound avahi-daemon systemd-resolved
+sudo systemctl status dns-health-check.timer
+sudo journalctl -u dns-health-check.service -n 100 --no-pager
+dig @127.0.0.1 github.com
+# Hourly monitors (first run 5 min after boot): journald holds one record per run,
+# the full reports are in /var/log/net-snapshot.log and /var/log/power-report.log
+systemctl list-timers 'net-snapshot*' 'power-report*' 'ke-maintenance*'
+# schedule (or remove) a periodic proving reboot: sudo schedule-reboot.sh
+# why mitigations=off / no swap / single NTP owner: CONFIG-OVERVIEW.md "Deliberate Platform Decisions"
+journalctl -u net-snapshot.service -u power-report.service -o cat --no-pager | tail -n 4
+```
 
-2. Run the build script:
-   - Execute `./ke-net-screen.sh`.
-   - The full run takes about 15–20 minutes depending on network and device speed. Timings are hardware-dependent and can be considerably lower — a warm rebuild with `--apt-cache` on fast storage completes in a few minutes.
+## Router Cutover Workflow
 
-3. Insert the SD card when prompted:
-   - At the first prompt during the build, insert the target SD card into the Pi.
+Use this sequence to reduce outage risk during deployment:
 
-4. Build and write the image:
-   - The script downloads and builds the image, wipes the SD card partitions, and writes the new image to the SD card.
+1. Prepare and validate
+   - Confirm ISP modem/router admin access and credentials.
+   - Build and verify locally before changing network settings.
+   - Update project settings in config/ and .env for your target network.
 
-5. Power down and swap media:
-   - When writing completes, run `sudo shutdown now` on the USB-hosted system.
-   - Remove the USB stick, connect the Ethernet (`eth0`) cable to the Pi, and insert the SD card.
+2. Create and boot target image
+   - Build image artifacts and write the SD card.
+   - Boot the appliance and verify services are healthy.
 
-6. Boot the Pi from the SD card:
-   - Power the Pi on and allow it to boot from the SD card.
+3. Cut over router settings
+   - Back up current LAN/DHCP/DNS settings on the router first.
+   - Set router DNS to the appliance's IP.
+   - Disable router DHCP. In this project design, DHCP is served by the Pi-hole configuration on the appliance.
+   - Do not run router DHCP and Pi-hole DHCP at the same time. Dual DHCP servers can issue conflicting leases, gateways, and DNS settings, causing intermittent connectivity and name resolution failures.
 
-7. Verify services and logs:
-   - Check service status: `systemctl status` (or `systemctl status <service>` for specific services).
-   - Inspect boot logs: `journalctl -b | more` to confirm configuration and setup messages.
+4. Reboot and confirm client registration
+   - Reboot router and selected clients in a stable order.
+   - Re-check DNS on clients and verify expected filtering behavior.
 
-Notes:
+5. Roll back quickly if needed
+   - Restore saved router DNS/LAN settings.
+   - Reboot router and clients to re-register leases/resolvers.
 
-- You could use Docker/Podman to build images, but you would still need to convert or export the image and burn it to an SD card for the Pi. This guide uses direct image creation and SD write for simplicity and reproducibility.
+```mermaid
+flowchart TD
+    A[Verify Router Access] --> B[Configure Project Values]
+    B --> C[Build and Validate Image]
+    C --> D[Boot the Appliance]
+    D --> E{Services Healthy?}
+    E -- No --> C
+    E -- Yes --> F[Backup Router LAN and DNS Settings]
+    F --> G[Update Router DNS to the Appliance]
+    G --> H[Reboot Router and Clients]
+    H --> I{DNS Working End to End?}
+    I -- Yes --> J[Cutover Complete]
+    I -- No --> K[Restore Previous Router Settings]
+    K --> L[Reboot and Re-Validate]
+```
 
-- grep -v '#' /run/systemd/resolve/stub-resolv.conf
-- grep -v '#' /run/systemd/resolve/resolv.conf
-- grep -v '#' /lib/systemd/resolv.conf
+**Be ready to use a wired connection to your ISP modem/router during cutover and rollback.**
+
+## Operating the Appliance
+
+### Collecting Logs from a LAN Host
+
+`home/scripts/network/collect-appliance-logs.sh <appliance-ip>` pulls the journal, the
+Unbound cache dump and a `tar.gz` of the monitor logs with a host-facts snapshot into
+`private/inbox/` and prints a short review. Add `--since-last` for an incremental journal;
+see `--help` for the operator opt-in (`sudo enable-cache-dump.sh` on the appliance) that lets
+the cache dump run unattended. The image also
+ships the script at `~/scripts/collect-appliance-logs.sh` (the `ke-monitor` layer); run there
+against the appliance's own name or address it collects locally without SSH and writes to
+`~/appliance-logs/`. Run it as your normal user, never under `sudo`: interactive runs prompt
+for your sudo password only for the cache dump.
+
+### Adlist Backups
+
+`sudo ~/scripts/export-adlist.sh` saves the adlists to `~/pihole-adlist-backups/` as a
+timestamped CSV and diffs it against the previous one; `import-adlist.sh FILE --apply`
+re-adds missing lists from such a file. `--domains` exports the realized block list (every
+domain the adlists resolved to) for comparison between updates. The first-boot import from the
+image's CSV is unchanged.
+
+### Env Toggles and Regex Deny (WPAD)
+
+Set `PIHOLE_REGEX_DENY` in `.env` (for example `^wpad\.`) to import Pi-hole regex deny entries
+on first boot; it is empty by default. On the appliance, `~/scripts/wpad-block.sh --on` or `--off`
+toggles the WPAD entry at run time with a domain-list backup in `~/pihole-backups/` and a
+`--restore` path. See CONFIG-OVERVIEW for how the `ke.` variables flow from `.env` to the layers.
+
+Two more `.env` toggles follow the same pattern (default off; development/production enable
+them): `UNBOUND_EXTRA_HARDENING=y` compiles the source-built Unbound with fortify level 3 and
+stack-clash protection (toolchain-probed; the build stops rather than silently shipping
+without them), and `DOT_TERMINATOR=y` serves DNS-over-TLS on port 853 via stunnel with FTL's
+own certificate, which default-mode Android/Apple Private DNS picks up opportunistically.
+
+### Certificate Verification
+
+`sudo verify-certs.sh` checks every TLS/crypto consumer on the appliance in one pass: the
+certificate FTL serves on 443 and the DoT terminator serves on 853 against the on-disk file
+(the staleness and privilege-drop proof), Unbound's DNSSEC trust-anchor age and control
+certificates, and a live DNSSEC validation. Run unprivileged it still probes the served
+certificates. `--journal-summary` emits a one-line `certcheck` record for trending. The
+script's header also documents the host's TLS centralization for anyone bringing a managed
+certificate.
+
+### Monthly Maintenance and Scheduled Reboot
+
+A monthly read-only maintenance bundle (`ke-maintenance.timer`, 1st of the month) performs a
+full-card read scrub, SQLite checks on the Pi-hole databases, a journal verify, and keeps
+rotating Teleporter config backups on the device — one `maintenance` journald record per run.
+`sudo schedule-reboot.sh` interactively sets (or removes) a periodic proving reboot — it shows
+the full existing schedule first, offers weekly through yearly cadences at 05:10, and bounds
+how long installed kernel/EEPROM/library updates can sit inactive.
+
+### Network Test Battery
+
+`home/scripts/network/dns-battery.py [appliance-ip]` runs a read-only, root-free test battery
+from any LAN host (~2 minutes): port surface (5335/8953 must be unreachable), latency across
+cache-hit/cold/blocked paths, DNSSEC enforcement (AD on valid, SERVFAIL on bogus), TCP and
+TCP-Fast-Open, NTP quality, rebinding/negative-cache/PTR-leak probes, and an informational
+posture section (WPAD state, TLS expiry).
+
+### Bootloader EEPROM
+
+The boot-time `rpi-eeprom-update -s -a` applies critical minimums only, so the bootloader can
+lag the images shipped in the `rpi-eeprom` package by months while reporting "up to date".
+`~/scripts/eeprom-update.sh` shows installed vs latest for the configured channel; `sudo
+eeprom-update.sh --apply` stages the latest and offers a reboot, which flashes it. The daily
+health check prints the gap as an ℹ line.
+
+## Security Posture
+
+What a deployed appliance enforces, and where the boundaries are:
+
+- **DNSSEC is validated and enforced** by Unbound (bogus answers SERVFAIL; the trust anchor
+  self-updates via RFC 5011 and is checked by the health tooling).
+- **One DNS door:** Unbound and its control port are loopback-only; the LAN reaches DNS only
+  through FTL on 53 and, optionally, TLS-wrapped 853. `dns-battery.py` verifies the port
+  surface from the outside.
+- **TLS floor is 1.2** on the DoT terminator (1.3 preferred), and the terminator runs
+  privilege-dropped after loading the certificate as root — `verify-certs.sh` proves the drop
+  held.
+- **No embedded secrets:** the Pi-hole password rides a one-time boot secret destroyed on
+  first boot; `.env` stays out of version control.
+- **Patching:** unattended security upgrades run daily; EEPROM changes are manual and shown
+  before staging.
+- **Known trade-offs are documented, not hidden** — `mitigations=off`, no swap, and the other
+  deliberate platform decisions live in CONFIG-OVERVIEW with their reasoning.
+- The DoT tier is **opportunistic** (self-signed certificate, no hostname validation): it
+  protects against passive observation on the LAN/Wi-Fi path, not against an active
+  man-in-the-middle with network control. A public-CA strict tier was assessed and parked.
+
+To report a security issue in this repository's code or configuration, use GitHub's private
+vulnerability reporting on the repository (Security tab), per [SECURITY.md](SECURITY.md).
+
+## Releases
+
+Versioned releases are tagged (`v0.x.y`) with release notes on the GitHub Releases page. Each
+release cycle is developed on a feature branch, verified with a full build and an on-device
+trial, then squash-merged. [RELEASE.md](RELEASE.md) documents the local preparation flow
+(`scripts/release-local.sh`: checks, build-only, artifact validation) and the checklist.
+
+## Development Notes
+
+Here we describe how the project was built and configured so that you may have greater success to build your own deployed server image.
+
+### VSCode Remote SSH
+
+This repository is intended to be hosted on the target hardware for the resulting image - a Raspberry Pi 5 single-board computer. Experience has shown that running WSL, Windows Subsystem Linux, does not allow running various root file system creation tools. Security measures are likely due to nested-hosting and virtualization risk vectors. You may read and trial these steps on any machine but they are only proven to work on a Raspberry Pi 5 host accessed via SSH through VSCode.
+
+1. Go to VSCode extensions
+2. Install **Remote Development Extension**
+   1. ms-vscode-remote.vscode-remote-extensionpack
+3. Go to the Raspberry Pi machine
+   1. Execute `sudo raspi-config`
+   2. Select Interface Options > SSH
+   3. Enable SSH Server
+4. Go to VSCode
+   1. CTL-SHIFT-P for Extension action
+   2. Remote-SSH: Connect Current Window to Host
+   3. Configure new host, use `username@ip.address` (<localadmin@192.xx.xx.xx>)
+   4. Connect and authenticate using username password
+5. Clone and manage repository on remote host
+
+Verify connectivity to the remote SSH host. You may also execute these steps directly on the host in the Debian desktop on the Raspberry Pi.
+
+### Working with the Submodules
+
+```bash
+# .gitmodules
+[submodule "rpi-image-gen"]
+ path = rpi-image-gen
+ url = https://github.com/raspberrypi/rpi-image-gen
+[submodule "vendors/pi-hole"]
+ path = vendors/pi-hole
+ url = https://github.com/pi-hole/pi-hole.git
+[submodule "vendors/unbound"]
+ path = vendors/unbound
+ url = https://github.com/NLnetLabs/unbound.git
+```
+
+Change the URL to match your fork repository or keep main rpi-image-gen repository.
+
+#### Option A: RPI-IMAGE-GEN Submodule
+
+The rpi-image-gen repository is its own source of truth. Any modifications or changes to the repository are bound by the maintainer(s). To respect and honor this to allow variations that can be easily contributed back to the maintainers, a targeted or forked repository configuration can be used private use.
+
+1. Using Github credentials, fork the rpi-image-gen repository
+   1. This allows for localized changes with ability to inherit upstream changes; don't forget to update your fork!
+2. In your local repository add the forked repository as a submodule
+   1. The local repository is created as private.
+   2. The forked repository is public.
+   3. The submodule treats the rpi-image-gen tool and software as an external dependency.
+
+```bash
+# Delete the current submodule setup and configuration
+# rm -Rf .gitsubmodules rpi-image-gen
+
+# Add a submodule
+# git submodule add <remote_url> <destination_folder>
+
+# Add the "rpi-image-gen" forked repository as a submodule in the project root folder
+git submodule add https://github.com/your-github-id/rpi-image-gen.git rpi-image-gen
+```
+
+#### Initializing and Updating Submodules
+
+When you clone a repository that contains submodules, the submodule directories will be present but empty. To initialize and update the submodules, run:
+
+```bash
+git submodule init
+git submodule update
+```
+
+Alternatively, use the `--recurse-submodules` option with `git clone` to initialize and update the submodules during cloning:
+
+```bash
+git clone --recurse-submodules <repository_url>
+```
+
+To update an existing submodule to the latest commit from the remote repository:
+
+```bash
+git submodule update --remote --merge
+```
+
+### Build Alternatives
+
+You could use Docker/Podman to build images, but you would still need to convert or export the image and burn it to an SD card for the Pi. This guide uses direct image creation and SD write for simplicity and reproducibility.
 
 ### V2 RPI-IMAGE-GEN CLI
 
+Current output of the pinned submodule (v2.9.0); `rpi-image-gen <cmd> -h` gives
+command-specific help, and `rpi-image-gen docs` serves the full project documentation
+locally:
+
+```text
+Supported commands:
+  help                Show this help message
+  build    [options]    Filesystem and image construction
+  clean    [options]    Clean work tree
+  layer    [options]    Layer operations (delegated)
+  metadata [options]    Layer metadata operations (delegated)
+  config   [options]    Config file operations (delegated)
+  docs     [port]       Serve project documentation on http://<host>:<port> (default 3142)
+```
+
 ```text
 Usage
-  rpi-image-gen build [options] [-- IGconf_key=value ...]
+  rpi-image-gen build [options] [-- key=value ...]
 
 Options:
   [-c <config>]    Path to config file.
@@ -798,7 +932,7 @@ Options:
   [-f]             setup, build filesystem, skip image generation.
   [-i]             setup, skip building filesystem, generate image(s).
 
-  IGconf Variable Overrides:
+  Variable Overrides:
     Use -- to separate options from overrides.
     Any number of key=value pairs can be provided.
     Use single quotes to enable variable expansion.

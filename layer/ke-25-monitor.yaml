@@ -96,6 +96,9 @@ mmdebstrap:
       # single place that documents the host's TLS centralization for a future
       # enterprise certificate (see its header).
       install -m 0755 "$REPO_ROOT/home/scripts/maintenance/verify-certs.sh" "$1/usr/local/bin/verify-certs.sh"
+      # Operator OPT-IN only (run manually post-deploy, never at build/first boot):
+      # grants one user passwordless unbound cache dumps for the collector.
+      install -m 0755 "$REPO_ROOT/home/scripts/maintenance/enable-cache-dump.sh" "$1/usr/local/bin/enable-cache-dump.sh"
       install -m 0644 "$REPO_ROOT/etc/systemd/system/ke-maintenance.service" "$1/etc/systemd/system/ke-maintenance.service"
       install -m 0644 "$REPO_ROOT/etc/systemd/system/ke-maintenance.timer" "$1/etc/systemd/system/ke-maintenance.timer"
       ln -sf "/etc/systemd/system/ke-maintenance.timer" "$1/etc/systemd/system/timers.target.wants/ke-maintenance.timer"

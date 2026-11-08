@@ -158,6 +158,12 @@ These are design choices, not omissions; revisit them only with measurements.
 - **Bootloader changes are manual.** EEPROM updates and the hardening preset
   (`eeprom-update.sh --harden`: SD-only boot order, power-off on halt) are operator
   actions that show their diff and ask; nothing writes the EEPROM silently.
+- **SD write rate is measured and accepted** (week-long attribution study, Nov 2026):
+  ~687 MiB/day ≈ 0.25 TB/yr — a steady ~410 MiB/day floor (journald > FTL > stunnel
+  direct writes plus their writeback and ext4 journal overhead) plus APT's twice-daily
+  list refreshes (100–340 MiB each) and the weekly gravity rebuild. No tuning ships:
+  the refresh cadence is what keeps unattended security upgrades current, query
+  retention stays at 91 days, and the write load is an endurance non-issue.
 
 ## Scheduled Maintenance
 
@@ -365,9 +371,12 @@ logs plus a host-facts snapshot (card, sectors written, failed units, timers, ve
 history) into `private/inbox/`, then prints a one-screen review (failed units, health ⚠/✗,
 under-voltage, SSH password logins, last health verdict, last `trend` and `snapshot`
 records). `--since-last` makes the journal incremental for a weekly cron. The cache dump
-needs root on the appliance: interactive runs prompt for your sudo password once, cron runs
-need the single-command sudoers line from the script header, and everything else is collected
-without it. Run as your normal user (not under `sudo`). On the appliance itself the script
+needs root on the appliance: interactive runs prompt for your sudo password once; for
+unattended runs an operator may grant exactly that one command with
+`sudo enable-cache-dump.sh` on the appliance (deliberately a manual post-deploy opt-in,
+never applied at build or first boot — the dump exposes the household's resolved-name
+cache; a reflash removes the grant, so re-run the script after flashing). Everything else
+is collected without it. Run as your normal user (not under `sudo`). On the appliance itself the script
 works locally without SSH and writes to `~/appliance-logs/`. All monitoring pieces are
 installed by `layer/ke-25-monitor.yaml`, which also puts the collector itself in
 `/usr/local/bin` (`~/scripts/`) on the appliance.

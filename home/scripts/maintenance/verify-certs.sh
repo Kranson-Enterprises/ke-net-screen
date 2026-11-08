@@ -5,11 +5,13 @@
 # reported honestly rather than faked).
 #
 # Why: three loaders share or hold long-lived key material with different owners and
-# reload behaviors. FTL regenerates tls.pem at expiry; stunnel loads it at start as
-# root then DROPS PRIVILEGES (setuid stunnel4), so "the served certificate matches
-# the file" is the load-order proof for the privilege drop AND the staleness check
-# the cert-watch path unit is meant to prevent. Unbound's root.key self-updates via
-# RFC 5011 and silently going stale would eventually break all DNSSEC validation.
+# reload behaviors. FTL auto-rotates tls.pem ~2 days BEFORE expiry (a daily runtime
+# check; only for certs FTL itself issued — CN pi.hole — and only while
+# webserver.tls.validity > 0); stunnel loads it at start as root then DROPS
+# PRIVILEGES (setuid stunnel4), so "the served certificate matches the file" is the
+# load-order proof for the privilege drop AND the staleness check the cert-watch
+# path unit is meant to prevent. Unbound's root.key self-updates via RFC 5011 and
+# silently going stale would eventually break all DNSSEC validation.
 #
 # Usage:
 #   sudo ./verify-certs.sh                    # full checks (file parsing needs root)
@@ -28,9 +30,11 @@
 #   on 443 and the stunnel DoT terminator on 853; the stunnel-cert-watch path unit
 #   propagates any change to 853 automatically. To integrate a managed certificate:
 #   install the combined key+cert at that path (or repoint webserver.tls.cert in
-#   pihole.toml), ensure renewal lands BEFORE expiry (FTL regenerates a self-signed
-#   pem if the file is expired/invalid at startup), then run this script — both
-#   served-vs-file checks prove the swap took everywhere. Out of scope by design:
+#   pihole.toml) AND set webserver.tls.validity = 0 so FTL never overwrites a managed
+#   cert; renewal must then land before expiry yourself. (FTL regenerates at STARTUP
+#   only when the file is MISSING/unreadable — an expired file is left alone at boot;
+#   its daily runtime check rotates only FTL-issued certs.) Then run this script —
+#   both served-vs-file checks prove the swap took everywhere. Out of scope by design:
 #   unbound's control certs (loopback-internal) and its DNSSEC trust anchor, and
 #   avahi (no TLS). SSH host keys are a separate domain.
 set -euo pipefail
@@ -172,7 +176,7 @@ emit "--- avahi: no certificate material by design (mDNS); nothing to verify"
 if [[ "$TLS_DAYS" != "-" ]] && (( TLS_DAYS < 14 )); then
     [[ "$PIHOLE"  == ok ]] && PIHOLE=WARN
     [[ "$STUNNEL" == ok ]] && STUNNEL=WARN
-    emit "WARN: tls.pem expires in $TLS_DAYS d — FTL will rotate it; the cert-watch unit must restart stunnel"
+    emit "WARN: tls.pem expires in $TLS_DAYS d — FTL auto-rotates ~2 d before expiry (daily check; FTL-issued certs, validity>0); cert-watch then restarts stunnel. If <2 d and still unrotated: rm the pem + restart pihole-FTL."
 fi
 
 record "certcheck ts=$(date '+%Y-%m-%dT%H:%M:%S') pihole=$PIHOLE stunnel=$STUNNEL unbound=$UNBOUND avahi=na tls_days=$TLS_DAYS anchor_age_d=$ANCHOR_AGE"
