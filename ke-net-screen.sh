@@ -187,6 +187,9 @@ if [[ -f "$ENV_FILE" ]]; then
   # DNS-over-TLS terminator on 853 (stunnel in front of FTL, FTL's own cert):
   # y/n toggle from .env; default off = nothing installed, behavior unchanged.
   export DOT_TERMINATOR="${DOT_TERMINATOR:-n}"
+  # Optional sysctl hardening files (60-net-observe, 61-kernel-harden): y/n toggle
+  # from .env; default off = neither installed, behavior unchanged.
+  export SYSCTL_HARDENING="${SYSCTL_HARDENING:-n}"
   set +a
 fi
 

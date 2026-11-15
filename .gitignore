@@ -13,3 +13,6 @@ private/*
 
 # Python bytecode from local checks
 __pycache__/
+
+# Claude Code
+.claude/

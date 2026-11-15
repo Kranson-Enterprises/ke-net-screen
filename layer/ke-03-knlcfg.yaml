@@ -76,3 +76,20 @@ mmdebstrap:
       REPO_ROOT=${SRCROOT:?SRCROOT is required}
       install -d -m 0755 "$1/usr/local/bin"
       install -m 0755 "$REPO_ROOT/home/scripts/firmware/eeprom-update.sh" "$1/usr/local/bin/eeprom-update.sh"
+    - |
+      # Optional sysctl hardening (IGconf_ke_sysctl_hardening=y, SYSCTL_HARDENING in .env):
+      # anti-spoof/redirect posture (60-net-observe.conf: no ICMP redirects in or out,
+      # strict reverse-path filter, martian logging) plus kernel information exposure
+      # (61-kernel-harden.conf: kptr_restrict, dmesg_restrict). Default n ships neither
+      # file, so an unset toggle leaves the image exactly as before. No "|| true":
+      # when the toggle is on, a missing file must fail the build.
+      set -eu
+      REPO_ROOT=${SRCROOT:?SRCROOT is required}
+      if [ "${IGconf_ke_sysctl_hardening:-n}" = "y" ]; then
+        install -d -m 0755 "$1/etc/sysctl.d"
+        install -m 0644 "$REPO_ROOT/etc/sysctl.d/60-net-observe.conf" "$1/etc/sysctl.d/60-net-observe.conf"
+        install -m 0644 "$REPO_ROOT/etc/sysctl.d/61-kernel-harden.conf" "$1/etc/sysctl.d/61-kernel-harden.conf"
+        echo "ke-knlcfg: sysctl hardening files installed (60-net-observe, 61-kernel-harden)"
+      else
+        echo "ke-knlcfg: sysctl hardening not requested (SYSCTL_HARDENING != y)"
+      fi

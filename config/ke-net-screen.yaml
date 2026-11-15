@@ -41,6 +41,8 @@ ke:
   # e.g. PIHOLE_REGEX_DENY='^wpad\.' in .env blocks Web Proxy Auto-Discovery lookups.
   pihole_regex_deny: $PIHOLE_REGEX_DENY
   dot_terminator: $DOT_TERMINATOR
+  # y installs the optional anti-spoof and kernel-exposure sysctl files; n = neither.
+  sysctl_hardening: $SYSCTL_HARDENING
 
 network:
   interface: $NETWORK_INTERFACE

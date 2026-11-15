@@ -355,7 +355,10 @@ counts; `--domains-diff` shows which domains appeared or vanished between two su
 refuses to continue if the toolchain cannot honor it. `DOT_TERMINATOR` (y/n, default n)
 installs a stunnel DNS-over-TLS listener on 853 in front of FTL using FTL's self-generated
 certificate; first boot enables it once the certificate exists, and a path unit restarts the
-listener whenever FTL rotates the certificate (~47-day validity).
+listener whenever FTL rotates the certificate (~47-day validity). `SYSCTL_HARDENING` (y/n,
+default n) installs `60-net-observe.conf` (no ICMP redirects in or out, strict reverse-path
+filter, martian logging) and `61-kernel-harden.conf` (`kptr_restrict`, `dmesg_restrict`;
+`dmesg` then needs sudo) under `/etc/sysctl.d`.
 in `layer/ke-00-layer.yaml` and consumed by `ke-piholecfg`, which stages the patterns and imports
 them into gravity.db as regex deny entries on first boot. The recommended value `^wpad\.` keeps
 Windows Web Proxy Auto-Discovery lookups on the LAN and, because Pi-hole answers them, also stops

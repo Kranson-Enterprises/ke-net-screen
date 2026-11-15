@@ -68,6 +68,14 @@ grep -q '^KE_FLASH_DISCARD=' .env.example
 grep -q 'dot_terminator: \$DOT_TERMINATOR' config/ke-net-screen.yaml
 grep -q '^# X-Env-Var-dot_terminator' layer/ke-00-layer.yaml
 grep -q 'stunnel@dot' layer/ke-15-piholecfg.yaml
+grep -q '^SYSCTL_HARDENING=' .env.example
+grep -q 'sysctl_hardening: \$SYSCTL_HARDENING' config/ke-net-screen.yaml
+grep -q '^# X-Env-Var-sysctl_hardening' layer/ke-00-layer.yaml
+grep -q 'IGconf_ke_sysctl_hardening' layer/ke-03-knlcfg.yaml
+grep -q 'SYSCTL_HARDENING' ke-net-screen.sh
+grep -q '^net.ipv4.conf.all.accept_redirects = 0' etc/sysctl.d/60-net-observe.conf
+grep -q '^kernel.dmesg_restrict = 1' etc/sysctl.d/61-kernel-harden.conf
+grep -q 'chmod 0440' layer/ke-25-monitor.yaml   # sudoers drop-in mode normalisation
 grep -q 'stunnel-cert-watch.path' layer/ke-15-piholecfg.yaml
 grep -q 'output = /var/log/stunnel-dot.log' layer/ke-15-piholecfg.yaml
 grep -q 'logrotate.d/stunnel-dot' layer/ke-15-piholecfg.yaml

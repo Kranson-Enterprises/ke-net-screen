@@ -102,3 +102,15 @@ mmdebstrap:
       install -m 0644 "$REPO_ROOT/etc/systemd/system/ke-maintenance.service" "$1/etc/systemd/system/ke-maintenance.service"
       install -m 0644 "$REPO_ROOT/etc/systemd/system/ke-maintenance.timer" "$1/etc/systemd/system/ke-maintenance.timer"
       ln -sf "/etc/systemd/system/ke-maintenance.timer" "$1/etc/systemd/system/timers.target.wants/ke-maintenance.timer"
+    - |
+      # sudoers drop-ins must be 0440 root:root for a clean `visudo -c`. The image
+      # generator's user setup writes /etc/sudoers.d/010_rpi-passwd with the umask
+      # default (0644); normalise every drop-in here, in the last ke layer, and let
+      # visudo fail the build if any file no longer parses.
+      set -eu
+      for f in "$1"/etc/sudoers.d/*; do
+        [ -f "$f" ] || continue
+        chmod 0440 "$f"
+        chown 0:0 "$f"
+      done
+      chroot "$1" visudo -c >/dev/null

@@ -342,8 +342,20 @@ if [[ $WITH_PIHOLE_CONF_CHECK -eq 1 ]]; then
     echo "WARN: could not seed a root key for the check; validating without an anchor" >&2
     ANCHOR_LINE="    # no anchor seeded"
   fi
+  # Neutralize every host-dependent COMPILED-IN default (directory, chroot,
+  # pidfile, username): unbound-checkconf verifies each against the BUILD HOST,
+  # and they only exist where the distro unbound package happens to be
+  # installed — a freshly provisioned host broke on all of them in sequence
+  # (2026-11-11: "bad chdir directory", then "pidfile directory does not
+  # exist"), and the A/B builder slot would hit them too. On the device the
+  # Debian config sets these; here they change nothing about what we validate
+  # (fragment syntax + compiled-in modules), and all include paths are absolute.
   cat > "$CHECK_TMP/check.conf" <<EOCHK
 server:
+    directory: "$CHECK_TMP"
+    chroot: ""
+    pidfile: "$CHECK_TMP/unbound.pid"
+    username: ""
 $ANCHOR_LINE
 include: "$STAGED_PIHOLE_CONF"
 include: "$STAGED_OBS_CONF"

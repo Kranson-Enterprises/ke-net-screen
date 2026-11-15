@@ -71,7 +71,10 @@ GUARD=""
 case "$SEL" in
     1) CAL="Sun *-*-* 05:10"; DESC="weekly (Sunday)" ;;
     2) CAL="Sun *-*-* 05:10"; DESC="bi-weekly (even ISO weeks, Sunday)"
-       GUARD='/bin/sh -c '\''w=$(date +%V); if [ $((10#$w % 2)) -eq 0 ]; then logger -t ke-scheduled-reboot "bi-weekly reboot (ISO week $w)"; systemctl reboot; else logger -t ke-scheduled-reboot "odd ISO week $w: skipping"; fi'\' ;;
+       # This string lands in ExecStart=, where systemd expands %-specifiers (%V would
+       # become /var/tmp) and ${...}; so: %% for a literal %, no braces, and %-V
+       # (unpadded week) instead of bash-only 10# since the unit runs under dash.
+       GUARD='/bin/sh -c '\''w=$(date +%%-V); if [ $((w %% 2)) -eq 0 ]; then logger -t ke-scheduled-reboot "bi-weekly reboot (ISO week $w)"; systemctl reboot; else logger -t ke-scheduled-reboot "odd ISO week $w: skipping"; fi'\' ;;
     3) CAL="*-*-01 05:10"; DESC="monthly (1st)" ;;
     4) CAL="*-01,04,07,10-01 05:10"; DESC="quarterly (Jan/Apr/Jul/Oct 1st)" ;;
     5) CAL="*-01,07-01 05:10"; DESC="semi-annually (Jan/Jul 1st)" ;;

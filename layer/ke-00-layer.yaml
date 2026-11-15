@@ -34,6 +34,16 @@
 # X-Env-Var-dot_terminator-Required: n
 # X-Env-Var-dot_terminator-Valid: string-or-empty
 # X-Env-Var-dot_terminator-Set: y
+#
+# X-Env-Var-sysctl_hardening:
+# X-Env-Var-sysctl_hardening-Desc: y installs two optional sysctl files (ke-knlcfg):
+#  60-net-observe.conf (refuse and never send ICMP redirects, strict reverse-path
+#  filter, log martian packets) and 61-kernel-harden.conf (kptr_restrict,
+#  dmesg_restrict). n (the default) installs neither and leaves behavior unchanged.
+#  Set from .env as SYSCTL_HARDENING via config/ke-net-screen.yaml.
+# X-Env-Var-sysctl_hardening-Required: n
+# X-Env-Var-sysctl_hardening-Valid: string-or-empty
+# X-Env-Var-sysctl_hardening-Set: y
 # METAEND
 mmdebstrap:
   suite: trixie

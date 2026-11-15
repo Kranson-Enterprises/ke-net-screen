@@ -94,7 +94,7 @@ The MIT license in this repository applies to the original ke-net-screen code an
 - **Observability:** hourly `net-snapshot` and `power-report` monitors and a daily DNS health check, each writing one journald record per run with full reports in self-rotating `/var/log` files; a monthly read-only maintenance bundle (full-card read scrub, database checks, journal verify, config backup); a log collector run from any LAN host.
 - **Unattended security upgrades** stay current daily; kernel/EEPROM activation is bounded by an optional operator-scheduled proving reboot (`schedule-reboot.sh`), and bootloader EEPROM updates are staged manually, never silently.
 - **SBOM per build**, corrected after source-built Unbound so the recorded package data matches what actually ships.
-- **Experiments are opt-in:** features arrive as `.env` toggles that default to current behavior (`DOT_TERMINATOR`, `UNBOUND_EXTRA_HARDENING`, `PIHOLE_REGEX_DENY`, `KE_FLASH_DISCARD`, ...).
+- **Experiments are opt-in:** features arrive as `.env` toggles that default to current behavior (`DOT_TERMINATOR`, `UNBOUND_EXTRA_HARDENING`, `SYSCTL_HARDENING`, `PIHOLE_REGEX_DENY`, `KE_FLASH_DISCARD`, ...).
 
 ### Architecture
 
