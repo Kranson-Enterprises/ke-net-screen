@@ -1,8 +1,15 @@
-// ke appliance policy for unattended-upgrades: security fixes only, never a
-// surprise reboot, and hands off the resolver.
+// ke appliance policy for unattended-upgrades: security and stable-update fixes,
+// never a surprise reboot, and hands off the resolver. Debian's own
+// 50unattended-upgrades already allows point releases (codename=${distro_codename},
+// label=Debian); this list adds to Debian's, it does not replace it.
 Unattended-Upgrade::Origins-Pattern {
-        // Debian security updates for the running release
+        // Debian security updates for the running release. Debian's defaults carry
+        // the same pattern; kept here on purpose so the security origin never
+        // depends on them (scripts/pre-release-check.sh asserts it).
         "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+        // Debian stable-updates: tzdata and other time-sensitive fixes that would
+        // otherwise wait for the next point release.
+        "origin=Debian,codename=${distro_codename}-updates";
         // Raspberry Pi archive (kernel/firmware/userspace fixes for the board)
         "origin=Raspberry Pi Foundation";
 };

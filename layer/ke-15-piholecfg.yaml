@@ -63,11 +63,14 @@ mmdebstrap:
       #  - file present: drop the installer's gravity + nightly-flush entries
       #    (observed double runs and a logrotate .1.gz collision), keep the rest
       #  - file absent: recreate only the @reboot logrotate + updatechecker entries
+      #    (logrotate on logrotate's DEFAULT state file, the one Debian's
+      #    logrotate.timer and pihole-logflush.service use, so no third
+      #    rotation history can disagree with them)
       if [ -f /etc/cron.d/pihole ]; then
         sed -i -e '/pihole updateGravity/d' -e '/pihole flush once quiet/d' /etc/cron.d/pihole || true
       else
         cat > /etc/cron.d/pihole <<'EOCRON'
-      @reboot root /usr/sbin/logrotate --state /var/lib/logrotate/pihole /etc/logrotate.d/pihole
+      @reboot root /usr/sbin/logrotate /etc/logrotate.d/pihole
       14 15 * * *   root    PATH="$PATH:/usr/sbin:/usr/local/bin/" pihole updatechecker
       @reboot root    PATH="$PATH:/usr/sbin:/usr/local/bin/" pihole updatechecker reboot
       EOCRON
@@ -138,6 +141,10 @@ mmdebstrap:
       # Weekly blocklist refresh. The unattended Pi-hole installer does not
       # reliably create /etc/cron.d/pihole (observed: zero gravity updates
       # in 12 days on a deployed host), so ship a systemd timer instead.
+      # Window Sun 03:00 + up to 90 min: a run (1-2 min) always ends before the
+      # even-ISO-week Sun 05:10 ke-scheduled-reboot; with the earlier 4 h delay
+      # a run could be cut and, being already triggered, was not retried that
+      # week (Persistent= only catches missed triggers).
       install -d -m 0755 "$1/etc/systemd/system"
       cat > "$1/etc/systemd/system/pihole-gravity.service" <<'EOGSVC'
       [Unit]
@@ -158,7 +165,7 @@ mmdebstrap:
 
       [Timer]
       OnCalendar=Sun *-*-* 03:00:00
-      RandomizedDelaySec=4h
+      RandomizedDelaySec=90min
       Persistent=true
 
       [Install]
@@ -168,20 +175,26 @@ mmdebstrap:
       install -d -m 0755 "$1/etc/systemd/system/timers.target.wants"
       ln -sf "/etc/systemd/system/pihole-gravity.timer" "$1/etc/systemd/system/timers.target.wants/pihole-gravity.timer"
     - |
-      # Daily Pi-hole query-log rotation. Upstream schedules this through
-      # /etc/cron.d/pihole, which the unattended installer does not reliably
-      # create (observed: zero cron activity in 12 days, pihole.log growing
-      # unbounded). Mirrors the upstream cron line, which drives Pi-hole's
-      # own logrotate config; the logrotate binary is an installer dependency.
+      # Daily Pi-hole query-log rotation, independent of cron (the unattended
+      # installer once left no working /etc/cron.d/pihole: zero cron activity
+      # in 12 days, pihole.log growing unbounded). Pi-hole v6.6 ships its
+      # rotation config as /etc/logrotate.d/pihole, which Debian's own
+      # logrotate.timer ALSO runs. `pihole flush once` calls
+      # `logrotate --force`, so on nights when logrotate.timer fired first it
+      # rotated again and left a few-minute sliver (3 of 16 nights, Nov 2026).
+      # Without --force, on logrotate's default state file, whichever timer
+      # runs first rotates and the other sees today's date and skips.
+      # (Never call plain `pihole flush`: without "once" it deletes the last
+      # 24 h of queries.)
       install -d -m 0755 "$1/etc/systemd/system"
       cat > "$1/etc/systemd/system/pihole-logflush.service" <<'EOLFSVC'
       [Unit]
-      Description=Rotate Pi-hole query logs (pihole flush)
+      Description=Rotate Pi-hole query logs (logrotate, shares state with logrotate.timer)
       After=pihole-FTL.service
 
       [Service]
       Type=oneshot
-      ExecStart=/usr/local/bin/pihole flush once quiet
+      ExecStart=/usr/sbin/logrotate /etc/logrotate.d/pihole
       Nice=10
       IOSchedulingClass=idle
       EOLFSVC
@@ -291,6 +304,23 @@ mmdebstrap:
       ; (1.1 refused, 1.3 preferred); pin it so a future policy change cannot
       ; silently lower it. 1.2 stays served for older DoT clients.
       sslVersionMin = TLSv1.2
+      EODOT
+        # Optional TLS hardening (DOT_TLS_HARDENING=y, IGconf_ke_dot_tls_hardening): same hook
+        # item, appended between the global options and the service section. n leaves
+        # dot.conf byte-identical to before.
+        if [ "${IGconf_ke_dot_tls_hardening:-n}" = "y" ]; then
+          cat >> "$1/etc/stunnel/dot.conf" <<-EOHARD
+      ; DOT_TLS_HARDENING=y. Key exchange: the ML-KEM-768 + X25519 post-quantum hybrid
+      ; first. stunnel's built-in default list has no ML-KEM and replaces OpenSSL's
+      ; PQ-first default, so it must be named here; X25519/P-256/P-384 stay for clients
+      ; without it. TLS 1.2 is AEAD-only (AES-GCM, ChaCha20-Poly1305): no CBC, no SHA-1
+      ; MAC. TLS 1.3 suites are untouched (all AEAD). Measured before enabling: every DoT
+      ; phone on the appliance used TLS 1.3 with AES-128-GCM.
+      curves = X25519MLKEM768:X25519:P-256:P-384
+      ciphers = ECDHE+AESGCM:ECDHE+CHACHA20
+      EOHARD
+        fi
+        cat >> "$1/etc/stunnel/dot.conf" <<-EODOT
       [dns-over-tls]
       accept = :::853
       connect = 127.0.0.1:53

@@ -93,3 +93,17 @@ mmdebstrap:
       else
         echo "ke-knlcfg: sysctl hardening not requested (SYSCTL_HARDENING != y)"
       fi
+      # One file per toggle (SYSCTL_NO_TIOCSTI, SYSCTL_NO_LDISC_AUTOLOAD,
+      # SYSCTL_NO_IO_URING), independent of the pair above; default n ships none.
+      for spec in "${IGconf_ke_sysctl_no_tiocsti:-n}:62-ke-no-tiocsti.conf" \
+                  "${IGconf_ke_sysctl_no_ldisc_autoload:-n}:63-ke-no-ldisc-autoload.conf" \
+                  "${IGconf_ke_sysctl_no_io_uring:-n}:64-ke-no-io-uring.conf"; do
+        f=${spec#*:}
+        if [ "${spec%%:*}" = "y" ]; then
+          install -d -m 0755 "$1/etc/sysctl.d"
+          install -m 0644 "$REPO_ROOT/etc/sysctl.d/$f" "$1/etc/sysctl.d/$f"
+          echo "ke-knlcfg: $f installed"
+        else
+          echo "ke-knlcfg: $f not requested"
+        fi
+      done

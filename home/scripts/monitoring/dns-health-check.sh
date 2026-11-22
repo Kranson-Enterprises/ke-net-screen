@@ -99,31 +99,62 @@ check_unbound_cache_stats() {
         return 0
     fi
 
-    # Unbound emits cumulative counters since start (stats_noreset): total.num.cachemiss
-    # is the number of recursions unbound actually performed. A hit *ratio* is not a
-    # useful signal here: FTL fronts unbound, answers 60-85% of client queries itself and
-    # serves stale for dns.cache.optimizer seconds, so unbound only ever sees names that
-    # have already expired in both caches and its ratio sits near 0% by design. Report the
-    # recursion rate instead and compare it with FTL's "forwarded" count in the 24h line
-    # below (unbound also sees FTL's stale-refresh and retry traffic, so expect it higher).
-    local stats hits misses expired prefetch up rate days
+    # total.num.cachemiss is the number of recursions unbound actually performed. A hit
+    # *ratio* is not a useful signal here: FTL fronts unbound, answers 60-85% of client
+    # queries itself and serves stale for dns.cache.optimizer seconds, so unbound only ever
+    # sees names that have already expired in both caches and its ratio sits near 0% by
+    # design. Report the recursion rate instead and compare it with FTL's "forwarded" count
+    # in the 24h line below (unbound also sees FTL's stale-refresh and retry traffic, so
+    # expect it higher).
+    #
+    # Counter window: ke-observability.conf sets statistics-interval 3600 with
+    # statistics-cumulative: no, so unbound logs one "server stats for thread N" block per
+    # hour and then RESETS its counters. stats_noreset therefore covers only time.elapsed
+    # (since the last block), not time.up. Dividing those counters by the uptime gave
+    # "~21/day" on 2026-11-16 against ~13,500/day in the journal. The daily rate now comes
+    # from the last 24 h of hourly blocks; the live counters are shown with their real
+    # window. If statistics are cumulative (no interval logging), the since-start maths
+    # still applies.
+    local stats hits misses expired prefetch up elapsed cum blocks rec24 threads hours rate days
     stats=$(unbound-control stats_noreset 2>/dev/null || true)
     hits=$(awk -F= '/^total\.num\.cachehits=/{print $2; exit}' <<< "$stats")
     misses=$(awk -F= '/^total\.num\.cachemiss=/{print $2; exit}' <<< "$stats")
     expired=$(awk -F= '/^total\.num\.expired=/{print $2; exit}' <<< "$stats")
     prefetch=$(awk -F= '/^total\.num\.prefetch=/{print $2; exit}' <<< "$stats")
     up=$(awk -F= '/^time\.up=/{print $2; exit}' <<< "$stats")
+    elapsed=$(awk -F= '/^time\.elapsed=/{printf "%d", $2; exit}' <<< "$stats")
+    cum=$(unbound-control get_option statistics-cumulative 2>/dev/null || echo no)
 
-    if [[ -n "$hits" && -n "$misses" ]]; then
+    if [[ -z "$hits" || -z "$misses" ]]; then
+        log_message "⚠ Unable to read Unbound cache stats"
+        return 0
+    fi
+    local window="prefetch=${prefetch:-0} expired-served=${expired:-0} cache-hits=$hits (FTL fronts the cache; low hits expected)"
+
+    if [[ "$cum" == "yes" ]]; then
         days=$(awk "BEGIN {printf \"%.1f\", ${up:-0}/86400}")
         if awk "BEGIN {exit !(${up:-0} >= 3600)}"; then
             rate=$(awk "BEGIN {printf \"%d\", $misses*86400/${up:-1}}")
-            log_message "ℹ Unbound: recursions=$misses (~${rate}/day over ${days} days up) prefetch=${prefetch:-0} expired-served=${expired:-0} cache-hits=$hits (FTL fronts the cache; low hits expected)"
+            log_message "ℹ Unbound: recursions=$misses (~${rate}/day over ${days} days up, cumulative counters) $window"
         else
-            log_message "ℹ Unbound: recursions=$misses (up ${up:-0}s, rate needs >=1h) prefetch=${prefetch:-0} expired-served=${expired:-0} cache-hits=$hits (FTL fronts the cache; low hits expected)"
+            log_message "ℹ Unbound: recursions=$misses (up ${up:-0}s, rate needs >=1h) $window"
         fi
+        return 0
+    fi
+
+    # Per-interval counters: sum the hourly blocks of the last 24 h (one block per thread
+    # per interval; the line ends "... N answers from cache, M recursions, ...").
+    read -r blocks rec24 < <(journalctl -u unbound --since "-24h" -o cat -q --no-pager 2>/dev/null \
+        | grep -oE 'server stats for thread [0-9]+: [0-9]+ queries, [0-9]+ answers from cache, [0-9]+ recursions' \
+        | awk '{n++; r += $(NF-1)} END {print n+0, r+0}')
+    threads=$(unbound-control get_option num-threads 2>/dev/null || echo 1)
+    [[ "$threads" =~ ^[1-9][0-9]*$ ]] || threads=1
+    hours=$(( ${blocks:-0} / threads ))
+    if (( hours > 0 )); then
+        rate=$(awk "BEGIN {printf \"%d\", ${rec24:-0}*24/$hours}")
+        log_message "ℹ Unbound: ~${rate} recursions/day (${rec24} in the last ${hours} hourly stats blocks); since the last hourly reset (${elapsed:-?}s): recursions=$misses $window"
     else
-        log_message "⚠ Unable to read Unbound cache stats"
+        log_message "ℹ Unbound: no hourly stats blocks in the last 24 h yet (statistics-interval); since the last hourly reset (${elapsed:-?}s): recursions=$misses $window"
     fi
 }
 

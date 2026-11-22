@@ -3,7 +3,16 @@
 # A deliberate, periodic reboot proves the full boot path still works while changes
 # are fresh, instead of discovering boot breakage during a power outage in year three.
 #
-# Usage:  sudo ./schedule-reboot.sh          (interactive only; no flags)
+# Usage:  sudo ./schedule-reboot.sh                   interactive; the only mode that
+#                                                     changes anything
+#         ./schedule-reboot.sh --print CADENCE [DIR]  dry run: render the two unit files
+#                                                     for CADENCE to stdout, or write them
+#                                                     into DIR (never a systemd unit
+#                                                     directory); no root, no tty
+#         CADENCE = 1-6 as in the menu, or weekly | biweekly | monthly | quarterly |
+#                   semiannual | yearly
+#   scripts/pre-release-check.sh renders every cadence with --print and checks what systemd
+#   would run, because these units are written on the device and no build check sees them.
 #
 # What it does, in order:
 #   1. Shows the FULL existing schedule: /etc/crontab, /etc/cron.d/*, root crontab,
@@ -20,12 +29,90 @@
 # The reboot logs one journald line (tag ke-scheduled-reboot) before restarting.
 set -euo pipefail
 
-(( EUID == 0 )) || { echo "schedule-reboot.sh: needs root (sudo)" >&2; exit 2; }
-[[ -t 0 ]] || { echo "schedule-reboot.sh: interactive; run from a terminal" >&2; exit 2; }
-
 UNIT=ke-scheduled-reboot
 TIMER_F=/etc/systemd/system/$UNIT.timer
 SVC_F=/etc/systemd/system/$UNIT.service
+
+usage() { sed -n '2,29p' "$0"; }
+
+# Cadence table, shared by the menu and --print. Sets CAL, DESC and GUARD (bi-weekly only);
+# returns 1 for an unknown selection.
+set_cadence() {
+    GUARD=""
+    case "$1" in
+        1|weekly)        CAL="Sun *-*-* 05:10"; DESC="weekly (Sunday)" ;;
+        2|biweekly|bi-weekly)
+                         CAL="Sun *-*-* 05:10"; DESC="bi-weekly (even ISO weeks, Sunday)"
+           # This string lands in ExecStart=, where systemd expands %-specifiers (%V would
+           # become /var/tmp) and ${...}; so: %% for a literal %, no braces, and %-V
+           # (unpadded week) instead of bash-only 10# since the unit runs under dash.
+           GUARD='/bin/sh -c '\''w=$(date +%%-V); if [ $((w %% 2)) -eq 0 ]; then logger -t ke-scheduled-reboot "bi-weekly reboot (ISO week $w)"; systemctl reboot; else logger -t ke-scheduled-reboot "odd ISO week $w: skipping"; fi'\' ;;
+        3|monthly)       CAL="*-*-01 05:10"; DESC="monthly (1st)" ;;
+        4|quarterly)     CAL="*-01,04,07,10-01 05:10"; DESC="quarterly (Jan/Apr/Jul/Oct 1st)" ;;
+        5|semiannual|semi-annually)
+                         CAL="*-01,07-01 05:10"; DESC="semi-annually (Jan/Jul 1st)" ;;
+        6|yearly)        CAL="*-01-01 05:10"; DESC="yearly (Jan 1st)" ;;
+        *) return 1 ;;
+    esac
+}
+
+# The two unit files, shared by the installer and --print (both use set_cadence's values).
+render_service() {
+    local exec_line="/bin/sh -c 'logger -t $UNIT \"scheduled reboot ($DESC)\"; systemctl reboot'"
+    if [[ -n "$GUARD" ]]; then exec_line="$GUARD"; fi
+    cat <<EOF
+# Written by schedule-reboot.sh $(date '+%Y-%m-%d %H:%M'). Cadence: $DESC
+[Unit]
+Description=Scheduled appliance reboot ($DESC)
+
+[Service]
+Type=oneshot
+ExecStart=$exec_line
+EOF
+}
+render_timer() {
+    cat <<EOF
+# Written by schedule-reboot.sh $(date '+%Y-%m-%d %H:%M'). Cadence: $DESC
+[Unit]
+Description=Scheduled appliance reboot ($DESC)
+
+[Timer]
+OnCalendar=$CAL
+Persistent=false
+
+[Install]
+WantedBy=timers.target
+EOF
+}
+
+case "${1:-}" in
+    "") ;;
+    -h|--help) usage; exit 0 ;;
+    --print)
+        (( $# == 2 || $# == 3 )) || { usage >&2; exit 2; }
+        set_cadence "$2" || { echo "schedule-reboot.sh: unknown cadence '$2'" >&2; exit 2; }
+        if (( $# == 2 )); then
+            echo "# ===== $UNIT.service"; render_service
+            echo; echo "# ===== $UNIT.timer"; render_timer
+            exit 0
+        fi
+        OUT=$3
+        [[ -d "$OUT" ]] || { echo "schedule-reboot.sh: no such directory: $OUT" >&2; exit 2; }
+        for d in /etc/systemd/system /run/systemd/system /usr/lib/systemd/system; do
+            if [[ "$OUT" -ef "$d" ]]; then
+                echo "schedule-reboot.sh: --print never installs; run without options to change $d" >&2
+                exit 2
+            fi
+        done
+        render_service > "$OUT/$UNIT.service"
+        render_timer > "$OUT/$UNIT.timer"
+        echo "wrote $OUT/$UNIT.service and $OUT/$UNIT.timer ($DESC)"
+        exit 0 ;;
+    *) usage >&2; exit 2 ;;
+esac
+
+(( EUID == 0 )) || { echo "schedule-reboot.sh: needs root (sudo)" >&2; exit 2; }
+[[ -t 0 ]] || { echo "schedule-reboot.sh: interactive; run from a terminal" >&2; exit 2; }
 
 echo "===== existing schedule (know what you are rebooting around) ====="
 echo "--- /etc/crontab:"
@@ -67,18 +154,8 @@ cat <<'EOM'
 EOM
 read -r -p "selection: " SEL
 
-GUARD=""
 case "$SEL" in
-    1) CAL="Sun *-*-* 05:10"; DESC="weekly (Sunday)" ;;
-    2) CAL="Sun *-*-* 05:10"; DESC="bi-weekly (even ISO weeks, Sunday)"
-       # This string lands in ExecStart=, where systemd expands %-specifiers (%V would
-       # become /var/tmp) and ${...}; so: %% for a literal %, no braces, and %-V
-       # (unpadded week) instead of bash-only 10# since the unit runs under dash.
-       GUARD='/bin/sh -c '\''w=$(date +%%-V); if [ $((w %% 2)) -eq 0 ]; then logger -t ke-scheduled-reboot "bi-weekly reboot (ISO week $w)"; systemctl reboot; else logger -t ke-scheduled-reboot "odd ISO week $w: skipping"; fi'\' ;;
-    3) CAL="*-*-01 05:10"; DESC="monthly (1st)" ;;
-    4) CAL="*-01,04,07,10-01 05:10"; DESC="quarterly (Jan/Apr/Jul/Oct 1st)" ;;
-    5) CAL="*-01,07-01 05:10"; DESC="semi-annually (Jan/Jul 1st)" ;;
-    6) CAL="*-01-01 05:10"; DESC="yearly (Jan 1st)" ;;
+    [1-6]) set_cadence "$SEL" ;;
     0)
         if [[ -f "$TIMER_F" || -f "$SVC_F" ]]; then
             read -r -p "Remove $UNIT.timer and its service? [y/N]: " ans
@@ -105,30 +182,8 @@ systemd-analyze calendar "$CAL" 2>/dev/null | sed 's/^/    /' | head -4 || true
 read -r -p "Write and enable this schedule now? [y/N]: " ans
 [[ "${ans,,}" =~ ^y ]] || { echo "unchanged"; exit 0; }
 
-EXEC_LINE="/bin/sh -c 'logger -t $UNIT \"scheduled reboot ($DESC)\"; systemctl reboot'"
-[[ -n "$GUARD" ]] && EXEC_LINE="$GUARD"
-
-cat > "$SVC_F" <<EOF
-# Written by schedule-reboot.sh $(date '+%Y-%m-%d %H:%M'). Cadence: $DESC
-[Unit]
-Description=Scheduled appliance reboot ($DESC)
-
-[Service]
-Type=oneshot
-ExecStart=$EXEC_LINE
-EOF
-cat > "$TIMER_F" <<EOF
-# Written by schedule-reboot.sh $(date '+%Y-%m-%d %H:%M'). Cadence: $DESC
-[Unit]
-Description=Scheduled appliance reboot ($DESC)
-
-[Timer]
-OnCalendar=$CAL
-Persistent=false
-
-[Install]
-WantedBy=timers.target
-EOF
+render_service > "$SVC_F"
+render_timer > "$TIMER_F"
 systemctl daemon-reload
 systemctl enable --now "$UNIT.timer"
 echo

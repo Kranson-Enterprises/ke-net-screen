@@ -21,9 +21,12 @@
 #                       FTL/unbound versions and diversions, journald and log sizes, ext4 error
 #                       count, throttle/temperature, apt history tail, this boot's warnings
 #       logs/           /var/log/dns-health.log*, net-snapshot.log*, power-report.log*
-#                       (+ /var/log/pihole/FTL.log and webserver.log with --with-pihole-logs)
+#   pihole-FTL-log-<hostname>-<YYMMDD-HHMM>.txt / pihole-webserver-log-…  (--with-pihole-logs:
+#                       they are 0640 pihole, so read through sudo like the cache dump)
 # then prints a short review: failed units, health-check ⚠/✗, under-voltage, SSH password
-# logins, the last health verdict, the last power "trend" and net "snapshot" records, and —
+# logins, the last health verdict, the last power "trend" and net "snapshot" records, the
+# RX dropped rate against its LAN baseline (~1.0/s of non-IP frames the stack has no
+# handler for; missed or errors > 0 would be real loss), and —
 # only when the appliance has them switched on — unbound's periodic statistics
 # (`unbound-control set_option statistics-interval: 3600`) and DNSSEC validation failures
 # (`set_option val-log-level: 1`). Absent lines produce no output, so the review stays short.
@@ -33,7 +36,10 @@
 #   --since-last          journal since the time saved by the previous run for this host
 #   --no-dump             skip the unbound cache dump
 #   --no-package          skip the tar.gz
-#   --with-pihole-logs    add /var/log/pihole/FTL.log and webserver.log to the package
+#   --with-pihole-logs    also fetch /var/log/pihole/FTL.log and webserver.log (root needed: an
+#                         interactive run asks for your sudo password, cron runs skip them
+#                         with a warning; FTL's recent log is also at the admin API
+#                         /api/logs/ftl)
 #   --keep-staging        leave the staging directory behind (debugging)
 #   --review-journal FILE re-run only the journal review on an already collected journal (no SSH)
 #
@@ -61,7 +67,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 DEST=""; SINCE_LAST=0; DO_DUMP=1; DO_PACKAGE=1; PIHOLE_LOGS=0; KEEP=0; TARGET=""; REVIEW_ONLY=""
 WARNINGS=()
 
-usage() { sed -n '2,54p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,61p' "$0" | sed 's/^# \{0,1\}//'; }
 die()   { echo "collect-appliance-logs.sh: $*" >&2; exit 1; }
 note()  { printf '==> %s\n' "$*"; }
 warn()  { printf '!!  %s\n' "$*" >&2; WARNINGS+=("$*"); }
@@ -136,7 +142,7 @@ if [[ "$host" == localhost || "$host" == 127.* || "$host" == "$(hostname)" || "$
 for ip in $(hostname -I 2>/dev/null); do [[ "$ip" == "$host" ]] && LOCAL=1; done
 
 STAGE=$(mktemp -d "${TMPDIR:-/tmp}/collect-appliance.XXXXXX")
-touch "$STAGE/journal.err" "$STAGE/package.err" "$STAGE/dump.err"
+touch "$STAGE/journal.err" "$STAGE/package.err" "$STAGE/dump.err" "$STAGE/plog.err"
 # One SSH connection shared by every step (at most one key/passphrase prompt).
 SSH_OPTS=(-o ConnectTimeout=10 -o ControlMaster=auto -o ControlPersist=120 -o "ControlPath=$STAGE/ssh-%C")
 [[ -t 0 ]] || SSH_OPTS+=(-o BatchMode=yes)
@@ -234,8 +240,13 @@ mkdir -p "$T/logs"
     journalctl -k -b -q --no-pager 2>/dev/null | grep -m2 -E 'mmc0: new|mmcblk0: mmc0' || true
     sec "memory"; free -m
     sec "network"; ip -br link; ip -br addr
+    # One machine-readable line per interface for the review's RX-dropped check.
+    for n in /sys/class/net/*; do
+        i=${n##*/}; [[ "$i" == lo || ! -r $n/statistics/rx_packets ]] && continue
+        echo "rxstats iface=$i packets=$(cat $n/statistics/rx_packets) dropped=$(cat $n/statistics/rx_dropped) missed=$(cat $n/statistics/rx_missed_errors) errors=$(cat $n/statistics/rx_errors) uptime_s=$(cut -d' ' -f1 /proc/uptime | cut -d. -f1)"
+    done
     sec "failed units"; systemctl --failed --no-legend --no-pager 2>/dev/null || true
-    sec "timers"; systemctl list-timers --all --no-pager 'dns-*' 'net-*' 'power-*' 'pihole-*' 'apt-*' 'fstrim*' 2>/dev/null || true
+    sec "timers"; systemctl list-timers --all --no-pager 'dns-*' 'net-*' 'power-*' 'pihole-*' 'ke-*' 'apt-*' 'fstrim*' 'logrotate*' 2>/dev/null || true
     sec "services (state, restarts, since)"
     for u in pihole-FTL unbound avahi-daemon systemd-resolved systemd-timesyncd ssh cron; do
         printf '%-18s %s\n' "$u" "$(systemctl show "$u" -p ActiveState,SubState,NRestarts,ActiveEnterTimestamp --value 2>/dev/null | paste -sd' ')"
@@ -263,10 +274,12 @@ mkdir -p "$T/logs"
     sec "apt history (tail)"; tail -n 60 /var/log/apt/history.log 2>/dev/null || echo "(not readable or absent)"
     # Collection artifacts are filtered so the tail stays signal: FTL's toml-open
     # error from historical unprivileged probes, and the sudo audit lines of this
-    # collector's own cache-dump command. Everything else stays verbatim.
+    # collector's own root reads (the cache dump, and the Pi-hole logs fetched by
+    # --with-pihole-logs, which log "a password is required" when refused).
+    # Everything else stays verbatim.
     sec "this boot: warnings and errors (last 40, collector's own noise filtered)"
     journalctl -b -p warning -q --no-pager 2>/dev/null \
-        | grep -vE 'openFTLtoml\(\)|COMMAND=/usr/sbin/unbound-control -c /etc/unbound/unbound\.conf dump_cache' \
+        | grep -vE 'openFTLtoml\(\)|COMMAND=/usr/sbin/unbound-control -c /etc/unbound/unbound\.conf dump_cache|COMMAND=/usr/bin/cat /var/log/pihole/(FTL|webserver)\.log' \
         | tail -n 40 || true
 } > "$T/host-info.txt" 2>&1
 for f in /var/log/dns-health.log /var/log/dns-health.log.1 /var/log/net-snapshot.log /var/log/net-snapshot.log.1 \
@@ -275,6 +288,8 @@ for f in /var/log/dns-health.log /var/log/dns-health.log.1 /var/log/net-snapshot
     [[ -r "$f" ]] && cp -p "$f" "$T/logs/" 2>/dev/null
 done
 if [[ "$PIHOLE_LOGS" == 1 ]]; then
+    # Readable only on older images; on current ones (0640 pihole) the local side
+    # fetches them through sudo after packaging.
     for f in /var/log/pihole/FTL.log /var/log/pihole/webserver.log; do [[ -r "$f" ]] && cp -p "$f" "$T/logs/" 2>/dev/null; done
 fi
 tar -C "$T" -czf - .
@@ -287,6 +302,21 @@ REMOTE
         mkdir -p "$STAGE/pkg" && tar -xzf "$PKG" -C "$STAGE/pkg"
         note "package: $(stat -c%s "$PKG") bytes — $(cd "$STAGE/pkg" && find . -type f | sed 's|^\./||' | sort | tr '\n' ' ')"
     fi
+fi
+
+# ---------------------------------------------------------------- Pi-hole logs (root-only)
+EXTRA_FILES=()
+if (( PIHOLE_LOGS )); then
+    for lf in FTL webserver; do
+        [[ -f "$STAGE/pkg/logs/$lf.log" ]] && continue     # older image: already in the package
+        out="$DEST/pihole-$lf-log-$RHOST-$STAMP.txt"
+        if rsudo_capture "$out" "$STAGE/plog.err" "cat /var/log/pihole/$lf.log" && [[ -s "$out" ]]; then
+            note "pihole $lf.log: $(wc -l < "$out") lines"; EXTRA_FILES+=("$out")
+        else
+            rm -f "$out"
+            warn "pihole $lf.log skipped (0640 pihole, needs sudo): $(tr '\n' ' ' < "$STAGE/plog.err" | tr -d '\r' | cut -c1-100). FTL's recent log is also at the admin API /api/logs/ftl."
+        fi
+    done
 fi
 
 # ---------------------------------------------------------------- unbound cache dump
@@ -352,8 +382,13 @@ if [[ -f "$LOGS/net-snapshot.log" ]]; then
         echo "  net:    no snapshot records yet (appliance predates --journal-summary)"
     fi
 fi
+# RX dropped: on this LAN the counter grows ~1.0/s from non-IP L2 frames no protocol handler
+# takes (measured identical on the build host, Nov 2026); missed/errors > 0 is real loss.
+if [[ -f "$HI" ]] && grep -q '^rxstats ' "$HI"; then
+    grep '^rxstats ' "$HI" | awk '{for(i=2;i<=NF;i++){split($i,kv,"="); v[kv[1]]=kv[2]}; r=(v["uptime_s"]>0)?v["dropped"]/v["uptime_s"]:0; printf "  rx:     %s dropped %.2f/s over uptime (%s of %s packets), missed %s, errors %s%s\n", v["iface"], r, v["dropped"], v["packets"], v["missed"], v["errors"], ((v["missed"]+v["errors"]>0)?"  <- REAL LOSS":(r>2?"  <- above the ~1.0/s LAN baseline":"")) }'
+fi
 echo "  files:"
-for f in "$JOURNAL" "$DUMP" "$PKG"; do [[ -n "$f" ]] && printf '    %9d  %s\n' "$(stat -c%s "$f")" "$f"; done
+for f in "$JOURNAL" "$DUMP" "$PKG" "${EXTRA_FILES[@]}"; do [[ -n "$f" ]] && printf '    %9d  %s\n' "$(stat -c%s "$f")" "$f"; done
 if (( ${#WARNINGS[@]} )); then
     echo "  warnings:"; printf '    %s\n' "${WARNINGS[@]}"
 fi

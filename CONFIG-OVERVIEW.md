@@ -7,15 +7,23 @@ This configuration implements a comprehensive DNS infrastructure for local netwo
 ### DNS Resolution Chain
 
 1. **Client Request** → **Pi-hole (port 53)** → **Unbound (port 5335)** → **Upstream DNS**
-2. **Local/mDNS** → **Avahi** → **systemd-resolved** (stub disabled)
+2. **Local/mDNS** → **Avahi**: the appliance's `.local` name and one published service; glibc
+   `.local` lookups via `mdns4_minimal` (systemd-resolved has `MulticastDNS=no`). The reflector
+   is configured but inert on a single IPv4-only interface — every option is explained in
+   [AVAHI.md](AVAHI.md)
 3. **LAN time** → **FTL NTP (port 123)**, advertised to clients via DHCP option 42
-4. **Appliance clock** ← **systemd-timesyncd** ← Debian NTP pool
+4. **Appliance clock** ← **systemd-timesyncd** ← Debian NTP pool / time.google.com, then Google
+   IP literals in the same `NTP=` list when the names cannot be resolved (boot, resolver outage)
+5. **Appliance's own lookups** (apt, gravity downloads, NTP names) → glibc classic resolver via
+   `/etc/resolv.conf` → **Pi-hole (127.0.0.1)** first; the two fallback resolvers
+   (`NETWORK_DNS1/2`) are asked only after a SERVFAIL, REFUSED or timeout from Pi-hole
 
 ### Service Ports
 
 - Pi-hole FTL: 53 (DNS), 80 (Web Interface), 67/udp (DHCP), 123/udp (NTP LAN time service)
 - Unbound: 5335 (Recursive DNS)
-- Avahi: 5353 (mDNS)
+- Avahi: 5353 (mDNS), plus four random-port UDP sockets held by the reflector and wide-area
+  settings ([AVAHI.md](AVAHI.md#sockets-avahi-holds))
 - SSH: 22 (bound to the static LAN IP only)
 
 ### Key Features
@@ -108,8 +116,16 @@ answer path, not competing ones.
 
 TCP reuse rung: unbound holds idle client TCP connections for `120 s`
 (`tcp-idle-timeout`, raised from 30 s) so FTL's keepalive-unaware socket
-reuse rarely races an idle close ("Connection prematurely closed" log
-noise; FTL retries transparently either way).
+reuse rarely races an idle close. The idle timeout also shrinks under load:
+once free incoming TCP buffers fall below 50 % / 35 % / 20 % of
+`incoming-num-tcp`, unbound cuts it to 1 % / 0.2 % / 0 (200 ms floor). With
+unbound's default of 10 buffers, a burst of more than 5 FTL connections
+therefore closes connections FTL is about to reuse; FTL logs "TCP connection
+failed ... prematurely closed" (CONNECTION_ERROR) and some answers go back
+to clients as REFUSED with EDE 23 ("Network Error"). It does not always
+retry transparently. `UNBOUND_INCOMING_NUM_TCP=40` (see Other Build
+Toggles) removed both on the appliance: before, up to 78 errors and 29 such
+REFUSED answers a day; with 40, none in the days measured.
 
 ### Cache Metrics: Why Unbound Reports Recursions, Not a Hit Ratio
 
@@ -118,8 +134,12 @@ three weeks) and says nothing about health: FTL fronts Unbound, answers
 60–85 % of client queries from its own cache and serves stale answers for
 `dns.cache.optimizer` seconds while refreshing, so Unbound only ever sees
 names that have already expired in both caches. The health check therefore
-reports Unbound's *recursion rate* (cache misses per day since start) next to
-FTL's 24 h cached/forwarded split. The number that reflects user experience
+reports Unbound's *recursion rate* next to FTL's 24 h cached/forwarded split:
+recursions per day summed from the last 24 hourly `server stats` blocks in the
+journal. (Unbound's live counters cannot give that rate: `ke-observability.conf`
+sets `statistics-interval: 3600` with `statistics-cumulative: no`, so Unbound
+resets them after every hourly block and `stats_noreset` covers only the time
+since the last one.) The number that reflects user experience
 is FTL's cached/(cached+forwarded) ratio; Unbound's recursions/day should
 sit in the same order as FTL's forwarded count (somewhat higher, since
 Unbound also absorbs FTL's stale-refresh and retry traffic). A sudden jump in
@@ -147,9 +167,11 @@ These are design choices, not omissions; revisit them only with measurements.
   Restart=on-failure) — a logged blip. With SD-backed swap the same leak would thrash the
   card for hours, stalling every DNS answer on the LAN, before failing anyway. The shipped
   `vm.swappiness` sysctl is dormant unless swap is ever added.
-- **One clock owner.** systemd-timesyncd disciplines the system clock (explicit servers +
-  IP-literal fallbacks in `etc/systemd/timesyncd.conf.d/ke-timesync.conf`, so time sync
-  survives resolver outages). FTL's own NTP client is off (`ntp.sync.active = false` in
+- **One clock owner.** systemd-timesyncd disciplines the system clock (server names followed
+  by IP literals in the same `NTP=` list of `etc/systemd/timesyncd.conf.d/ke-timesync.conf`:
+  timesyncd steps on to a literal when the names cannot be resolved, so time sync neither
+  waits for the local resolver at boot nor stalls during a resolver outage; `FallbackNTP=`
+  only applies when `NTP=` is empty). FTL's own NTP client is off (`ntp.sync.active = false` in
   pihole.toml); FTL still *serves* NTP to the LAN from the system clock. Two active NTP
   clients would fight over the clock.
 - **Query history is kept 91 days** (`database.maxDBdays`, the FTL default) as a deliberate
@@ -173,21 +195,25 @@ These are design choices, not omissions; revisit them only with measurements.
 | `net-snapshot.timer` | 5 min after boot, then hourly | Kernel network counters (`nstat`) + socket summary/listeners (`ss`) to `/var/log/net-snapshot.log`; one `snapshot …` record per run in journald |
 | `power-report.timer` | 5 min after boot, then hourly | Throttle flags, PMIC rail power, temperatures, energy forecast to `/var/log/power-report.log`; one `trend …` record per run in journald |
 | `ke-maintenance.timer` | monthly, 1st 03:40 (+ random ≤20 min) | Read-only device maintenance: full-card read scrub, SQLite `quick_check` on the Pi-hole databases, `journalctl --verify`, Teleporter config backup (keep 6) to `/var/lib/ke-maintenance`; one `maintenance …` record per run in journald |
-| `pihole-gravity.timer` | Sun 03:00 + up to 4 h jitter, `Persistent=true` | Weekly blocklist refresh |
-| `pihole-logflush.timer` | Daily 00:10 + 30 min jitter | Rotates the Pi-hole query log via Pi-hole's own logrotate config |
+| `pihole-gravity.timer` | Sun 03:00 + up to 90 min jitter, `Persistent=true` | Weekly blocklist refresh; always finishes before the bi-weekly 05:10 reboot (a run cut by a reboot is not retried that week, since the trigger already happened) |
+| `pihole-logflush.timer` | Daily 00:10 + 30 min jitter | Rotates the Pi-hole logs with `logrotate /etc/logrotate.d/pihole` (no `--force`), sharing logrotate's state with `logrotate.timer` |
+| `logrotate.timer` (Debian) | Daily 00:00 + up to 1 h | Runs every `/etc/logrotate.d/*`, which since Pi-hole v6.6 includes `pihole`; whichever of the two timers fires first rotates, the other sees today's date and skips |
+| `ke-scheduled-reboot.timer` | Sun 05:10, reboots in even ISO weeks only (bi-weekly), `Persistent=false` | Proving reboot that also activates pending kernel/library updates; one `ke-scheduled-reboot` journal line per Sunday (reboot or skip). Set up or removed with `schedule-reboot.sh` |
 
 The two Pi-hole timers were added after a build whose unattended installer
 left no working `/etc/cron.d/pihole` (12 days of runtime with zero cron
-activity — stale blocklists and an unbounded query log). On the current build
-the installer does create the cron file and `cron.service` runs, so gravity
-and the log flush execute twice (cron at 00:00 / Sunday 03–05 h, the timers
-shortly after). Harmless but wasteful; see
-`private/boot-log-assessment-2026-09-27.md` §2.1 for the dedupe options
-(preferred: keep the timers, strip the two cron lines after install).
+activity — stale blocklists and an unbounded query log). Each job now has one
+scheduler: the first-boot script strips the installer's gravity and
+nightly-flush lines from `/etc/cron.d/pihole`, which keeps only
+`pihole updatechecker` (daily and `@reboot`); if the installer left no cron
+file at all, first boot writes the `@reboot` logrotate and updatechecker
+entries itself, on logrotate's default state file. The other cron entries
+(`e2scrub_all`, `cron.daily/apt-compat|dpkg|logrotate`) are no-ops under
+systemd, and `cron.hourly` is empty.
 
 ```bash
 # Inspect all maintenance and monitoring timers
-systemctl list-timers 'pihole-*' 'dns-*' 'net-snapshot*' 'power-report*'
+systemctl list-timers 'pihole-*' 'dns-*' 'net-snapshot*' 'power-report*' 'ke-*' 'logrotate*'
 ```
 
 ## Maintenance Commands
@@ -214,8 +240,10 @@ journalctl -u dns-health-check.service -n 100 --no-pager
 sudo verify-certs.sh
 
 # Scheduled reboots: show the full cron+timer schedule, then set weekly..yearly
-# cadence (or remove); confirms before writing ke-scheduled-reboot.timer (05:10)
+# cadence (or remove); confirms before writing ke-scheduled-reboot.timer (05:10).
+# Dry run, no root: print the units a cadence would install (1-6 or weekly..yearly)
 sudo schedule-reboot.sh
+schedule-reboot.sh --print biweekly
 
 # Bootloader EEPROM: installed vs the channel's latest (the boot-time service applies
 # critical minimums only); stage an update deliberately, then reboot to flash
@@ -277,6 +305,12 @@ For validating remote login when testing a freshly flashed host:
 ```bash
 # Effective server config as sshd actually resolved it (drop-ins included)
 sudo sshd -T | grep -Ei 'addressfamily|listenaddress|permitrootlogin|passwordauthentication|pubkeyauthentication|authenticationmethods|kbdinteractive'
+sudo sshd -T | grep -Ei '^(kexalgorithms|ciphers|macs) '
+
+# Key exchange a client actually negotiated (OpenSSH 10: mlkem768x25519-sha256;
+# upstream OpenSSH 9.x: sntrup761x25519-sha512 in one of its two spellings; Windows'
+# bundled OpenSSH_for_Windows 9.5 has no PQ hybrid and settles on curve25519-sha256)
+ssh -vv <user>@<appliance> true 2>&1 | grep 'kex: algorithm'
 
 # Validate config syntax before restarting sshd
 sudo sshd -t
@@ -319,7 +353,7 @@ Notes:
 
 ### Log Locations
 
-- Pi-hole (v6): `/var/log/pihole/pihole.log` (rotated daily by `pihole-logflush.timer`) and `/var/log/pihole/FTL.log` (rotates at FTL startup, as does `webserver.log`)
+- Pi-hole (v6): `/var/log/pihole/pihole.log` (daily, 5 kept) and `/var/log/pihole/FTL.log` + `webserver.log` (weekly, 3 kept), all by `/etc/logrotate.d/pihole`, run by `pihole-logflush.timer` and Debian's `logrotate.timer` on one shared state so each rotation happens once. The files are 0640 `pihole`; FTL's recent log is also served by the admin API (`/api/logs/ftl`), whose buffer restarts whenever FTL restarts its resolver
 - Health check: `/var/log/dns-health.log` — self-rotates at 256 KiB, one previous generation kept (~512 KiB ceiling); journald holds the primary copy (`journalctl -u dns-health-check`)
 - Network snapshot: `/var/log/net-snapshot.log` — the full hourly `nstat`/`ss` dump, self-rotates at 2 MiB (about two weeks) with one previous generation; journald carries only the one-line `snapshot ts=… udp_in=… tcp_retrans=…` record per run (since v0.3.6 the record ends `gw_up=… upstream_ok=…`: 1/0 reachability of the default gateway and 1.1.1.1, so a WAN outage is a row of zeros in hourly history) (`journalctl -u net-snapshot`), absolute counters since boot, so two records give the load or loss in between
 - DoT connections: `/var/log/stunnel-dot.log` (owner stunnel4, group adm, rotated weekly
@@ -350,21 +384,46 @@ counts; `--domains-diff` shows which domains appeared or vanished between two su
 
 `PIHOLE_REGEX_DENY` in `.env` (semicolon-separated, empty by default) flows through
 `config/ke-net-screen.yaml` as `ke.pihole_regex_deny` → `IGconf_ke_pihole_regex_deny`, declared
-`UNBOUND_EXTRA_HARDENING` (y/n, default n) adds `-D_FORTIFY_SOURCE=3` and
-`-fstack-clash-protection` to the Unbound source build after a toolchain probe; the build
-refuses to continue if the toolchain cannot honor it. `DOT_TERMINATOR` (y/n, default n)
-installs a stunnel DNS-over-TLS listener on 853 in front of FTL using FTL's self-generated
-certificate; first boot enables it once the certificate exists, and a path unit restarts the
-listener whenever FTL rotates the certificate (~47-day validity). `SYSCTL_HARDENING` (y/n,
-default n) installs `60-net-observe.conf` (no ICMP redirects in or out, strict reverse-path
-filter, martian logging) and `61-kernel-harden.conf` (`kptr_restrict`, `dmesg_restrict`;
-`dmesg` then needs sudo) under `/etc/sysctl.d`.
 in `layer/ke-00-layer.yaml` and consumed by `ke-piholecfg`, which stages the patterns and imports
 them into gravity.db as regex deny entries on first boot. The recommended value `^wpad\.` keeps
 Windows Web Proxy Auto-Discovery lookups on the LAN and, because Pi-hole answers them, also stops
 the client's LLMNR fallback. On the appliance `~/scripts/wpad-block.sh` shows the state and
 `sudo wpad-block.sh --on|--off` toggles the entry; every change is preceded by a backup of the
 domain lists in `~/pihole-backups/`, and `--restore` puts a backup back.
+
+### Other Build Toggles
+
+`UNBOUND_EXTRA_HARDENING` (y/n, default n) adds `-D_FORTIFY_SOURCE=3` and
+`-fstack-clash-protection` to the Unbound source build after a toolchain probe; the build
+refuses to continue if the toolchain cannot honor it. `DOT_TERMINATOR` (y/n, default n)
+installs a stunnel DNS-over-TLS listener on 853 in front of FTL using FTL's self-generated
+certificate; first boot enables it once the certificate exists, and a path unit restarts the
+listener whenever FTL rotates the certificate (~47-day validity). `DOT_TLS_HARDENING` (y/n,
+default n; only with `DOT_TERMINATOR=y`) names the ML-KEM-768 + X25519 post-quantum hybrid
+first in stunnel's key-exchange list (stunnel's own default has no ML-KEM and replaces
+OpenSSL's PQ-first default) and limits TLS 1.2 to AEAD suites (AES-GCM, ChaCha20-Poly1305:
+no CBC, no SHA-1 MAC). TLS 1.3 is unchanged and TLS 1.2 stays available for older clients;
+read the negotiated version and group per connection with `debug = info` in
+`/etc/stunnel/dot.conf`. `UNBOUND_INCOMING_NUM_TCP` (an integer 1-40, default 10 =
+Unbound's own) writes `etc/unbound/unbound.conf.d/ke-incoming-tcp.conf` when it is not 10
+(see the TCP reuse rung above for why it matters). Above 40 the build refuses: this Unbound
+uses its built-in event loop with 1,024 descriptors and needs `incoming-num-tcp` + 984 at
+`outgoing-range` 960. `SYSCTL_HARDENING` (y/n,
+default n) installs `60-net-observe.conf` (no ICMP redirects in or out, strict reverse-path
+filter, martian logging) and `61-kernel-harden.conf` (`kptr_restrict`, `dmesg_restrict`;
+`dmesg` then needs sudo) under `/etc/sysctl.d`. The first file also carries
+`net.ipv4.conf.*.rp_filter = 1` and `net.ipv6.conf.*.accept_redirects = 0`: systemd's
+`50-default.conf` sets every interface's rp_filter to loose (2), the kernel uses the higher of
+"all" and the interface value, and IPv6 "default" never reaches an interface that already
+exists, so without the patterns `eth0` stays loose and accepts IPv6 redirects (read
+`/proc/sys/net/ipv4/conf/eth0/rp_filter`). `SYSCTL_NO_TIOCSTI`, `SYSCTL_NO_LDISC_AUTOLOAD`
+and `SYSCTL_NO_IO_URING` (y/n, default n; independent of each other and of
+`SYSCTL_HARDENING`) each install one file: `62-ke-no-tiocsti.conf`
+(`dev.tty.legacy_tiocsti = 0`, no keystroke injection into another session's terminal),
+`63-ke-no-ldisc-autoload.conf` (`dev.tty.ldisc_autoload = 0`, users cannot trigger
+line-discipline module loads) and `64-ke-no-io-uring.conf` (`kernel.io_uring_disabled = 2`;
+software that requires io_uring then fails). Each file's header gives its runtime rollback,
+since removing a file and running `sysctl --system` does not reset a value.
 
 ### Collecting Logs for Review
 

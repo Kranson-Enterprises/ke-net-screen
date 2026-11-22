@@ -41,8 +41,16 @@ ke:
   # e.g. PIHOLE_REGEX_DENY='^wpad\.' in .env blocks Web Proxy Auto-Discovery lookups.
   pihole_regex_deny: $PIHOLE_REGEX_DENY
   dot_terminator: $DOT_TERMINATOR
+  # y: ML-KEM-first key exchange and AEAD-only TLS 1.2 on the DoT terminator.
+  dot_tls_hardening: $DOT_TLS_HARDENING
+  # Unbound incoming-num-tcp, 1-40; 10 = Unbound's default (nothing written).
+  unbound_incoming_num_tcp: $UNBOUND_INCOMING_NUM_TCP
   # y installs the optional anti-spoof and kernel-exposure sysctl files; n = neither.
   sysctl_hardening: $SYSCTL_HARDENING
+  # y installs one sysctl file each (62/63/64-ke-no-*.conf); n = not installed.
+  sysctl_no_tiocsti: $SYSCTL_NO_TIOCSTI
+  sysctl_no_ldisc_autoload: $SYSCTL_NO_LDISC_AUTOLOAD
+  sysctl_no_io_uring: $SYSCTL_NO_IO_URING
 
 network:
   interface: $NETWORK_INTERFACE

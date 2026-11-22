@@ -12,8 +12,9 @@
 #   sudo ./eeprom-update.sh --harden          # appliance bootloader config: BOOT_ORDER=0xf1 (SD only),
 #                                             # POWER_OFF_ON_HALT=1, WAKE_ON_GPIO=0 — shows the diff and
 #                                             # asks before staging; flashed on the next reboot
-#   sudo ./eeprom-update.sh --unharden        # revert to the Pi 5 defaults: BOOT_ORDER=0xf41 (SD, then
-#                                             # USB, repeat), POWER_OFF_ON_HALT=0, WAKE_ON_GPIO=1 — for
+#   sudo ./eeprom-update.sh --unharden        # revert to the Pi 5 defaults: BOOT_ORDER=0xf461 (SD, NVMe,
+#                                             # USB, repeat — what an untouched Pi 5 EEPROM reports;
+#                                             # 0xf41 is the Pi 4 default), POWER_OFF_ON_HALT=0, WAKE_ON_GPIO=1 — for
 #                                             # operators who need USB boot back. If the device no longer
 #                                             # boots at all, neither option helps from here: write the
 #                                             # Raspberry Pi Imager "EEPROM recovery" image to an SD card
@@ -40,7 +41,7 @@ while (( $# )); do
         --clear)   MODE=clear ;;
         --harden)  MODE=harden ;;
         --unharden) MODE=unharden ;;
-        -h|--help) sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "eeprom-update.sh: unknown argument '$1' (see --help)" >&2; exit 2 ;;
     esac
     shift
@@ -119,7 +120,7 @@ case "$MODE" in
         if [[ "$MODE" == harden ]]; then
             WANT="BOOT_ORDER=0xf1 POWER_OFF_ON_HALT=1 WAKE_ON_GPIO=0"
         else
-            WANT="BOOT_ORDER=0xf41 POWER_OFF_ON_HALT=0 WAKE_ON_GPIO=1"
+            WANT="BOOT_ORDER=0xf461 POWER_OFF_ON_HALT=0 WAKE_ON_GPIO=1"
         fi
         NEWCONF="$CONF"
         CHANGES=0

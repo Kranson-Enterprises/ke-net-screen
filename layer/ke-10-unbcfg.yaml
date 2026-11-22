@@ -66,3 +66,26 @@ mmdebstrap:
       # Persistent observability (hourly stats blocks + DNSSEC-failure logging);
       # same hook item so REPO_ROOT is in scope (hook-split lesson).
       cp -a "$REPO_ROOT/etc/unbound/unbound.conf.d/ke-observability.conf" "$1/etc/unbound/unbound.conf.d/ke-observability.conf"
+      # Incoming TCP buffers (UNBOUND_INCOMING_NUM_TCP, IGconf_ke_unbound_incoming_num_tcp):
+      # Pi-hole FTL forwards over TCP too, and with unbound's default of 10 a burst of more
+      # than 5 connections makes unbound shorten its idle timeout and close connections FTL
+      # is about to reuse (FTL then logs CONNECTION_ERROR and may answer REFUSED, EDE 23).
+      # 40 removed both on the appliance (live trial 2026-11-18..21). Range 1-40: this
+      # unbound uses the built-in event loop (1,024 fds) and needs N + 984 with
+      # outgoing-range 960, so above 40 it would cut outgoing-range. 10 (the default)
+      # writes nothing, leaving the image exactly as before.
+      N=${IGconf_ke_unbound_incoming_num_tcp:-10}
+      case "$N" in
+        ''|*[!0-9]*) echo "ke-unbcfg: UNBOUND_INCOMING_NUM_TCP must be an integer 1-40 (got '$N')" >&2; exit 1 ;;
+      esac
+      if [ "$N" -lt 1 ] || [ "$N" -gt 40 ]; then
+        echo "ke-unbcfg: UNBOUND_INCOMING_NUM_TCP=$N is outside 1-40 (fd budget: N + 984 <= 1024)" >&2; exit 1
+      fi
+      if [ "$N" -ne 10 ]; then
+        printf '%s\n' "# Written at build time from UNBOUND_INCOMING_NUM_TCP (layer/ke-10-unbcfg.yaml)." \
+          "server:" "    incoming-num-tcp: $N" > "$1/etc/unbound/unbound.conf.d/ke-incoming-tcp.conf"
+        chmod 0644 "$1/etc/unbound/unbound.conf.d/ke-incoming-tcp.conf"
+        echo "ke-unbcfg: incoming-num-tcp $N (ke-incoming-tcp.conf)"
+      else
+        echo "ke-unbcfg: incoming-num-tcp left at unbound's default (10)"
+      fi

@@ -26,8 +26,12 @@ DESCRIPTION:
     - Thread and network statistics
     - DNS query type breakdown
 
-    Uses 'stats_noreset' command which shows cumulative statistics without
-    resetting the counters, preserving historical data.
+    Uses 'stats_noreset', which reads the counters without resetting them.
+    On this image they are NOT cumulative since start: ke-observability.conf
+    sets statistics-interval 3600 with statistics-cumulative: no, so unbound
+    resets them after each hourly journal block. The report shows the real
+    counter window (time.elapsed); hourly history is in the journal
+    (journalctl -u unbound | grep 'server stats').
 
 OPTIONS:
     -h, --help      Show this help message and exit
@@ -144,14 +148,20 @@ format_stats() {
     local total_cachemiss=$(extract_value "$raw_stats" "total.num.cachemiss")
     local total_prefetch=$(extract_value "$raw_stats" "total.num.prefetch")
     local time_up=$(extract_value "$raw_stats" "time.up")
+    local time_elapsed=$(extract_value "$raw_stats" "time.elapsed")
     local recursion_avg=$(extract_value "$raw_stats" "total.recursion.time.avg")
     local recursion_median=$(extract_value "$raw_stats" "total.recursion.time.median")
-    
+
     # System Information
     echo "🕒 System Information:"
     echo "---------------------"
     if [[ -n "$time_up" ]]; then
         echo "  Uptime: $(format_time "$time_up")"
+    fi
+    if [[ -n "$time_elapsed" ]]; then
+        # Counters below cover only this window when statistics-cumulative is no
+        # (hourly reset by statistics-interval), not the whole uptime.
+        echo "  Counter window: $(format_time "${time_elapsed%.*}") since the last statistics reset"
     fi
     echo "  Timestamp: $(date)"
     echo ""

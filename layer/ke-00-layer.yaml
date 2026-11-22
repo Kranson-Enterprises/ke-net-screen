@@ -35,6 +35,24 @@
 # X-Env-Var-dot_terminator-Valid: string-or-empty
 # X-Env-Var-dot_terminator-Set: y
 #
+# X-Env-Var-dot_tls_hardening:
+# X-Env-Var-dot_tls_hardening-Desc: y hardens the DoT terminator's TLS (ke-piholecfg):
+#  key exchange offers the ML-KEM-768 + X25519 hybrid first, TLS 1.2 is AEAD-only.
+#  Only with dot_terminator=y. n (the default) leaves dot.conf unchanged.
+#  Set from .env as DOT_TLS_HARDENING via config/ke-net-screen.yaml.
+# X-Env-Var-dot_tls_hardening-Required: n
+# X-Env-Var-dot_tls_hardening-Valid: string-or-empty
+# X-Env-Var-dot_tls_hardening-Set: y
+#
+# X-Env-Var-unbound_incoming_num_tcp:
+# X-Env-Var-unbound_incoming_num_tcp-Desc: Unbound incoming-num-tcp (ke-unbcfg), an
+#  integer 1-40; the hook refuses anything else. 10 (Unbound's default) writes
+#  nothing; another value writes etc/unbound/unbound.conf.d/ke-incoming-tcp.conf.
+#  Set from .env as UNBOUND_INCOMING_NUM_TCP via config/ke-net-screen.yaml.
+# X-Env-Var-unbound_incoming_num_tcp-Required: n
+# X-Env-Var-unbound_incoming_num_tcp-Valid: string-or-empty
+# X-Env-Var-unbound_incoming_num_tcp-Set: y
+#
 # X-Env-Var-sysctl_hardening:
 # X-Env-Var-sysctl_hardening-Desc: y installs two optional sysctl files (ke-knlcfg):
 #  60-net-observe.conf (refuse and never send ICMP redirects, strict reverse-path
@@ -44,6 +62,31 @@
 # X-Env-Var-sysctl_hardening-Required: n
 # X-Env-Var-sysctl_hardening-Valid: string-or-empty
 # X-Env-Var-sysctl_hardening-Set: y
+#
+# X-Env-Var-sysctl_no_tiocsti:
+# X-Env-Var-sysctl_no_tiocsti-Desc: y installs 62-ke-no-tiocsti.conf (ke-knlcfg):
+#  dev.tty.legacy_tiocsti = 0, no keystroke injection into another terminal.
+#  n (the default) installs nothing. Set from .env as SYSCTL_NO_TIOCSTI.
+# X-Env-Var-sysctl_no_tiocsti-Required: n
+# X-Env-Var-sysctl_no_tiocsti-Valid: string-or-empty
+# X-Env-Var-sysctl_no_tiocsti-Set: y
+#
+# X-Env-Var-sysctl_no_ldisc_autoload:
+# X-Env-Var-sysctl_no_ldisc_autoload-Desc: y installs 63-ke-no-ldisc-autoload.conf
+#  (ke-knlcfg): dev.tty.ldisc_autoload = 0, users cannot trigger tty line-discipline
+#  module loads. n (the default) installs nothing. Set from .env as
+#  SYSCTL_NO_LDISC_AUTOLOAD.
+# X-Env-Var-sysctl_no_ldisc_autoload-Required: n
+# X-Env-Var-sysctl_no_ldisc_autoload-Valid: string-or-empty
+# X-Env-Var-sysctl_no_ldisc_autoload-Set: y
+#
+# X-Env-Var-sysctl_no_io_uring:
+# X-Env-Var-sysctl_no_io_uring-Desc: y installs 64-ke-no-io-uring.conf (ke-knlcfg):
+#  kernel.io_uring_disabled = 2, io_uring refused for every process. n (the default)
+#  installs nothing. Set from .env as SYSCTL_NO_IO_URING.
+# X-Env-Var-sysctl_no_io_uring-Required: n
+# X-Env-Var-sysctl_no_io_uring-Valid: string-or-empty
+# X-Env-Var-sysctl_no_io_uring-Set: y
 # METAEND
 mmdebstrap:
   suite: trixie

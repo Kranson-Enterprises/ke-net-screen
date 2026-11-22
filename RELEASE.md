@@ -24,7 +24,8 @@ This validates:
 - Monitor units pass `--journal-summary` (one journald record per run; full reports in /var/log)
 - Monitoring unit files present for the layer to install (net-snapshot and power-report service + timer)
 - No hardcoded Pi-hole password in layer definitions
-- SSH hardening policy baseline (password and public-key auth both accepted, no root login, no keyboard-interactive, strong ciphers/KEX/MACs; key-only mode is deliberately not enforced — see the commented directives in the policy file)
+- Scheduled-reboot units: `schedule-reboot.sh` writes its units on the device, where no build check sees them, so every cadence is rendered with `--print` and checked. The checks are `systemd-analyze verify` (any output fails), no lone `%` specifier and no `${`/`$$` in `ExecStart=`, `OnCalendar` at 05:10, and `Persistent=false`. The rendered command also runs under `/bin/sh` with `date` pinned to known Sundays and `logger`/`systemctl` stubbed: bi-weekly must skip ISO weeks 47, 9 and 53 and reboot in 48 and 8.
+- SSH hardening policy baseline (password and public-key auth both accepted, no root login, no keyboard-interactive, strong ciphers/KEX/MACs with the post-quantum hybrids `mlkem768x25519-sha256` and `sntrup761x25519-sha512` offered; key-only mode is deliberately not enforced — see the commented directives in the policy file)
 - Environment template contract (.env.example contains PIHOLE_PASSWORD)
 - Preflight prerequisites (commands, free disk, network)
 
@@ -67,19 +68,34 @@ Key metrics to establish baseline post-deployment:
 - CPU governor state (expected: `schedutil`, set via `cpufreq.default_governor=` in the kernel command-line drop-in `layer/ke-03-knlcfg.d/for/linux-base/cmdline.d/60-ke-appliance`)
 - Unbound recursions per day next to FTL's 24 h cached/forwarded split (a hit ratio is structurally ~0 % behind FTL)
 
-## 4. Validate Artifact Metadata
+## 4. Validate the Build (Artifacts and Image Contents)
 
 ```bash
-./scripts/validate-deploy-artifacts.sh
+./scripts/validate-deploy-artifacts.sh                     # both phases
+./scripts/validate-deploy-artifacts.sh --build-log FILE    # plus the build-log scan
 ```
 
-This checks the newest `ke-net-screen-build/deploy-*/` directory for:
+Phase 1 checks the newest `ke-net-screen-build/deploy-*/` directory for:
 
 - Required named files: `deployed.json`, `config.yaml.zst`, `manifest.zst`
 - At least one compressed image artifact (`*.img.zst`)
 - At least one compressed SBOM (`*.sbom.zst`)
 - The IDP bundle `<image name>.idp.tar.zst`, containing `image.json`,
   `boot.vfat.sparse` and `root.ext4.sparse`
+
+Phase 2 inspects what the image actually contains, from the build's rootfs
+(`ke-net-screen-build/chroot-*/filesystem`, still on disk after a build): about 70
+read-only checks across build integrity (installer present, source-built Unbound
+runs and accepts the config, binary hardening, `dpkg --audit`), SSH (including
+`sshd -t` on the image's own configuration, with a throwaway host key and private
+`/dev` and `/run` mounts, so a mistyped algorithm cannot ship), accounts and
+sudoers, file permissions, sysctl (in systemd-sysctl's file order, per-interface
+patterns included) and modules, systemd units, service configuration and leaks (no
+baked-in host keys, machine-id, TLS key, `.env` or admin password).
+It re-runs itself under `podman unshare`, because rootfs ownership is only visible
+in the rootless build namespace, and skips with a warning when the rootfs or podman
+is absent. Checks against private build sources run only when those files exist and
+never print secret values. `--artifacts-only` / `--rootfs-only` run one phase.
 
 Since rpi-image-gen v2.8.0-54 ("deploy: one basename per build, one hook per
 concern") every deliverable is named after `image.name`: `<name>.img.zst` is the

@@ -187,10 +187,30 @@ if [[ -f "$ENV_FILE" ]]; then
   # DNS-over-TLS terminator on 853 (stunnel in front of FTL, FTL's own cert):
   # y/n toggle from .env; default off = nothing installed, behavior unchanged.
   export DOT_TERMINATOR="${DOT_TERMINATOR:-n}"
+  # Hardened DoT TLS (ML-KEM first, AEAD-only TLS 1.2): y/n toggle from .env;
+  # default off = stunnel's defaults, dot.conf unchanged.
+  export DOT_TLS_HARDENING="${DOT_TLS_HARDENING:-n}"
+  # Unbound incoming-num-tcp: integer 1-40 from .env; default 10 (Unbound's own)
+  # writes nothing. The ke-unbcfg hook validates the range.
+  export UNBOUND_INCOMING_NUM_TCP="${UNBOUND_INCOMING_NUM_TCP:-10}"
   # Optional sysctl hardening files (60-net-observe, 61-kernel-harden): y/n toggle
   # from .env; default off = neither installed, behavior unchanged.
   export SYSCTL_HARDENING="${SYSCTL_HARDENING:-n}"
+  # One sysctl file each (62/63/64-ke-no-*.conf): y/n toggles from .env; default off =
+  # not installed, kernel default applies.
+  export SYSCTL_NO_TIOCSTI="${SYSCTL_NO_TIOCSTI:-n}"
+  export SYSCTL_NO_LDISC_AUTOLOAD="${SYSCTL_NO_LDISC_AUTOLOAD:-n}"
+  export SYSCTL_NO_IO_URING="${SYSCTL_NO_IO_URING:-n}"
   set +a
+fi
+
+# Fail fast on an unusable UNBOUND_INCOMING_NUM_TCP: the ke-unbcfg hook refuses it too,
+# but only minutes into the build. 1-40 fits this Unbound's 1,024-descriptor budget.
+case "${UNBOUND_INCOMING_NUM_TCP:-10}" in
+  ''|*[!0-9]*) echo "UNBOUND_INCOMING_NUM_TCP must be an integer 1-40 (got '${UNBOUND_INCOMING_NUM_TCP}')" >&2; exit 1 ;;
+esac
+if (( 10#${UNBOUND_INCOMING_NUM_TCP:-10} < 1 || 10#${UNBOUND_INCOMING_NUM_TCP:-10} > 40 )); then
+  echo "UNBOUND_INCOMING_NUM_TCP=${UNBOUND_INCOMING_NUM_TCP} is outside 1-40 (Unbound descriptor budget)" >&2; exit 1
 fi
 
 require_commands() {

@@ -74,6 +74,7 @@ The MIT license in this repository applies to the original ke-net-screen code an
 
 - **README** (this file) — build, deploy, cut over, operate.
 - **[CONFIG-OVERVIEW.md](CONFIG-OVERVIEW.md)** — how the appliance works and why: configuration flow from `.env` to the layers, deliberate platform decisions, the scheduled-maintenance table, log locations.
+- **[SCALING.md](SCALING.md)** — where the appliance's limits are, what changes from 10 to 100,000 client devices, how routers, segments and timing shape DNS quality, and how a single-board computer maps onto purpose-built network devices.
 - **[RELEASE.md](RELEASE.md)** — the release process; see [Releases](#releases).
 
 ## Overview
@@ -94,7 +95,7 @@ The MIT license in this repository applies to the original ke-net-screen code an
 - **Observability:** hourly `net-snapshot` and `power-report` monitors and a daily DNS health check, each writing one journald record per run with full reports in self-rotating `/var/log` files; a monthly read-only maintenance bundle (full-card read scrub, database checks, journal verify, config backup); a log collector run from any LAN host.
 - **Unattended security upgrades** stay current daily; kernel/EEPROM activation is bounded by an optional operator-scheduled proving reboot (`schedule-reboot.sh`), and bootloader EEPROM updates are staged manually, never silently.
 - **SBOM per build**, corrected after source-built Unbound so the recorded package data matches what actually ships.
-- **Experiments are opt-in:** features arrive as `.env` toggles that default to current behavior (`DOT_TERMINATOR`, `UNBOUND_EXTRA_HARDENING`, `SYSCTL_HARDENING`, `PIHOLE_REGEX_DENY`, `KE_FLASH_DISCARD`, ...).
+- **Experiments are opt-in:** features arrive as `.env` toggles that default to current behavior (`DOT_TERMINATOR`, `DOT_TLS_HARDENING`, `UNBOUND_EXTRA_HARDENING`, `UNBOUND_INCOMING_NUM_TCP`, `SYSCTL_HARDENING`, `SYSCTL_NO_TIOCSTI`, `SYSCTL_NO_LDISC_AUTOLOAD`, `SYSCTL_NO_IO_URING`, `PIHOLE_REGEX_DENY`, `KE_FLASH_DISCARD`, ...).
 
 ### Architecture
 
@@ -612,40 +613,39 @@ This image deliberately does NOT include legacy networking components:
 | `/etc/network/interfaces` | **Absent** | Uses systemd-networkd instead (declarative, service-based configuration) |
 | `/etc/dhcp/dhclient.conf` | **Absent** | Static IP configured in systemd-networkd (no DHCP client needed) |
 | `/etc/mdns.allow` | **Absent** | Uses NSS mDNS through libnss-mdns (modern, no separate service config) |
-| `/etc/resolv.conf` | **Link to `/run/systemd/resolve/stub-resolv.conf`** | Managed by systemd-resolved. Note: the stub listener itself is disabled (`DNSStubListener=no`) so Pi-hole can own port 53; glibc lookups go through nss-resolve, not this file. Tools that read resolv.conf directly (e.g. plain `dig`) should query `@127.0.0.1` explicitly |
+| `/etc/resolv.conf` | **Link to `/run/systemd/resolve/stub-resolv.conf`** | Managed by systemd-resolved. With the stub listener disabled (`DNSStubListener=no`, so Pi-hole owns port 53) resolved writes it in "uplink" mode: `127.0.0.1` (Pi-hole) first, then the two fallback resolvers from `NETWORK_DNS1`/`NETWORK_DNS2`. glibc's classic resolver reads this file, so every lookup on the appliance tries Pi-hole first |
 
 **Security and Best Practices:**
 
 - **No legacy ifupdown:** Removes obsolete networking stack and reduces attack surface
-- **systemd-resolved stub listener disabled:** `DNSStubListener=no` frees port 53 for Pi-hole; resolved itself forwards lookups to Pi-hole at 127.0.0.1 (see `/etc/systemd/resolved.conf.d/unbound.conf`)
-- **Pi-hole as primary DNS:** Runs on port 53, receives all queries via systemd-resolved delegation
+- **systemd-resolved stub listener disabled:** `DNSStubListener=no` frees port 53 for Pi-hole; resolved itself (for `resolvectl` callers) forwards to Pi-hole at 127.0.0.1 (see `/etc/systemd/resolved.conf.d/unbound.conf`)
+- **Pi-hole as primary DNS:** Runs on port 53 and answers LAN clients (DHCP hands out only the appliance) as well as the appliance's own lookups, which try `127.0.0.1` before the fallback resolvers
 - **Unbound as upstream resolver:** Isolated on port 5335, only accessible from Pi-hole (defense-in-depth)
-- **NSS hosts order:** `mymachines resolve [!UNAVAIL=return] files myhostname mdns4_minimal [NOTFOUND=return] dns` — systemd-resolved first, with mDNS and classic DNS as guarded fallbacks (explained below)
+- **NSS hosts order:** `mymachines resolve [!UNAVAIL=return] files myhostname mdns4_minimal [NOTFOUND=return] dns` — but the `mymachines`, `resolve` and `myhostname` modules are not installed, so glibc skips them and the effective order is `files`, `mdns4_minimal`, `dns` (explained below)
 - **No embedded secrets:** Configuration uses environment variables, one-time boot secrets destroyed after use
 
-**How the NSS hosts order works** (`/etc/nsswitch.conf`, kept deliberately in this order):
+**How the NSS hosts order works** (`/etc/nsswitch.conf`):
 
-| Entry | Role |
+| Entry | Role on this image |
 | --- | --- |
-| `mymachines` | Resolves local systemd-machined container/VM names; effectively a no-op on this appliance, kept for standard ordering |
-| `resolve [!UNAVAIL=return]` | systemd-resolved handles the lookup. The action `[!UNAVAIL=return]` means: if resolved is running, accept its answer — found *or* not found — and stop; entries after this are only consulted when resolved itself is unavailable |
-| `files` | `/etc/hosts` — fallback when resolved is not running |
-| `myhostname` | Guarantees the host's own name and `localhost` always resolve, even with everything else down |
-| `mdns4_minimal [NOTFOUND=return]` | Avahi IPv4 mDNS for `.local` names in the fallback path. `[NOTFOUND=return]` stops `.local` queries from leaking on to unicast DNS servers |
-| `dns` | Classic resolver via `/etc/resolv.conf`; last resort in the chain |
+| `mymachines` | systemd-machined container/VM names. Module (`libnss-mymachines`) not installed: skipped |
+| `resolve [!UNAVAIL=return]` | Would hand lookups to systemd-resolved. Module (`libnss-resolve`) not installed, so it reports UNAVAIL and glibc moves on. Installing it would switch every lookup to resolved with `DNSSEC=yes` — a separately evaluated design, not the current behaviour |
+| `files` | `/etc/hosts` — the first entry that actually answers |
+| `myhostname` | Would guarantee the host's own name. Module (`libnss-myhostname`) not installed: skipped; `/etc/hosts` covers the hostname |
+| `mdns4_minimal [NOTFOUND=return]` | Avahi IPv4 mDNS for `.local` names. `[NOTFOUND=return]` stops `.local` queries from leaking on to unicast DNS servers |
+| `dns` | Classic resolver via `/etc/resolv.conf` — the everyday path: `127.0.0.1` (Pi-hole) first, then the two fallback resolvers |
 
-In normal operation systemd-resolved answers everything (forwarding to Pi-hole per `resolved.conf.d/unbound.conf`), so the entries after `resolve` form a resilience chain for when resolved is down rather than the everyday path. `.local` service discovery is primarily provided by the Avahi daemon and its tools (`avahi-browse`, `avahi-resolve`), with `mdns4_minimal` supplying glibc-level `.local` lookups in that fallback path.
+In normal operation the classic resolver asks Pi-hole for every name. glibc moves on to the next server in `/etc/resolv.conf` only when Pi-hole returns SERVFAIL or REFUSED or does not answer (an FTL restart, first boot before Pi-hole is installed). Unbound itself refuses bogus DNSSEC answers; whether a fallback resolver also validates depends on that resolver (the ISP's do at the reference site). `.local` service discovery is primarily provided by the Avahi daemon and its tools (`avahi-browse`, `avahi-resolve`), with `mdns4_minimal` supplying glibc-level `.local` lookups.
 
 ### Network Lookup Checks
 
-Note: on the appliance itself, always give `dig` an explicit `@server`. Plain `dig example.com` reads `/etc/resolv.conf`, which points at the disabled 127.0.0.53 stub address; glibc applications are unaffected because they resolve through nss-resolve instead.
+Note: on the appliance, plain `dig example.com` reads `/etc/resolv.conf` and asks `127.0.0.1` (Pi-hole) first; give `@server` to test one resolver explicitly. Unbound answers only on the appliance's loopback.
 
-- dig example.com @127.0.0.1
-- dig example.com @192.168.0.124
-- dig example.com @192.168.0.124#5335
-- or dig example.com @192.168.0.124 -p 5335
+- dig example.com @127.0.0.1                (on the appliance: Pi-hole)
+- dig example.com @127.0.0.1 -p 5335        (on the appliance: Unbound directly)
+- dig example.com @192.168.0.53             (from a LAN client: the appliance's Pi-hole)
 - dig -4 example.com @127.0.0.1
-- dig -6 example.com @127.0.0.1
+- dig -6 example.com @::1
 
 ### Post-Boot Acceptance Checks
 
@@ -658,8 +658,8 @@ sudo journalctl -u dns-health-check.service -n 100 --no-pager
 dig @127.0.0.1 github.com
 # Hourly monitors (first run 5 min after boot): journald holds one record per run,
 # the full reports are in /var/log/net-snapshot.log and /var/log/power-report.log
-systemctl list-timers 'net-snapshot*' 'power-report*' 'ke-maintenance*'
-# schedule (or remove) a periodic proving reboot: sudo schedule-reboot.sh
+systemctl list-timers 'net-snapshot*' 'power-report*' 'ke-*' 'pihole-*' 'logrotate*'
+# schedule (or remove) a periodic proving reboot: sudo schedule-reboot.sh (ke-scheduled-reboot.timer)
 # why mitigations=off / no swap / single NTP owner: CONFIG-OVERVIEW.md "Deliberate Platform Decisions"
 journalctl -u net-snapshot.service -u power-report.service -o cat --no-pager | tail -n 4
 ```
@@ -762,6 +762,9 @@ rotating Teleporter config backups on the device — one `maintenance` journald 
 `sudo schedule-reboot.sh` interactively sets (or removes) a periodic proving reboot — it shows
 the full existing schedule first, offers weekly through yearly cadences at 05:10, and bounds
 how long installed kernel/EEPROM/library updates can sit inactive.
+`schedule-reboot.sh --print CADENCE [DIR]` renders the same two unit files without
+installing anything (no root); `scripts/pre-release-check.sh` uses it to verify every
+cadence before a release.
 
 ### Network Test Battery
 
